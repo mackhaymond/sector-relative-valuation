@@ -9,8 +9,6 @@ soft = yf.Industry(
 top = soft.top_companies
 
 
-print(top)
-
 
 # Extract beta values for the top companies
 def get_beta(ticker):
@@ -25,8 +23,8 @@ def get_beta(ticker):
 
 # Create a DataFrame with company tickers and betas
 data = {
-    "Ticker": [company["symbol"] for company in top],
-    "Beta": [get_beta(company["symbol"]) for company in top],
+    "Ticker": [company for company in top.index],
+    "Beta": [get_beta(company) for company in top.index],
 }
 df = pd.DataFrame(data)
 
