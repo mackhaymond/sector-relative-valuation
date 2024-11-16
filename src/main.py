@@ -37,4 +37,4 @@ std_beta = df["Beta"].std()
 df["Z-Score"] = (df["Beta"] - mean_beta) / std_beta
 
 # Display results
-print(df)
+df.to_csv("results.csv", index=False)
