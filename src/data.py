@@ -45,7 +45,7 @@ X3_QUALITY_METRICS = {
 
 # Dependent Variable (Y) for Regression
 Y_VALUATION_METRIC = {
-    "PE": "forwardPE"  # Forward P/E ratio as valuation metric
+    "PE": "trailingPE"  # Trailing P/E ratio as valuation metric
     # Can be modified to use different valuation metrics:
     # "PB": "priceToBook"
     # "PS": "priceToSales"
@@ -195,8 +195,7 @@ async def analyze_industries_async(industries: List[str] = INDUSTRIES) -> pd.Dat
     # Combine all results
     if all_results:
         final_df = pd.concat(all_results, ignore_index=False)  # Keep index to preserve tickers
-        os.makedirs("data/processed", exist_ok=True)  # Ensure directory exists
-        final_df.to_csv("data/processed/industry_analysis.csv")  # Save to correct location
+        final_df.to_csv("industry_analysis.csv")  # Save to correct location
         return final_df
     else:
         print("No results were successfully processed.")

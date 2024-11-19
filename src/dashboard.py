@@ -3,11 +3,13 @@ import numpy as np
 from dash import Dash, html, dcc, callback, Output, Input, State
 import plotly.express as px
 import plotly.graph_objects as go
-from sklearn.preprocessing import StandardScaler
+import logging
 from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import RidgeCV
 from sklearn.metrics import r2_score
-import logging
+from scipy import stats
+from typing import Tuple, Dict
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -50,38 +52,59 @@ STYLES = {
         'padding': '15px',
         'borderRadius': '6px',
         'fontFamily': 'monospace',
+        'marginBottom': '10px',
         'fontSize': '14px',
         'marginTop': '10px',
-        'marginBottom': '10px'
+        'whiteSpace': 'pre-wrap'
     }
 }
 
+# Constants
+METRICS = {
+    'Risk_Z': 'Risk Score (Z)',
+    'Growth_Z': 'Growth Score (Z)',
+    'Quality_Z': 'Quality Score (Z)',
+    'Combined_Z': 'Combined Score (Z)'
+}
+
 def load_and_process_data():
+    """Load and process the data for the dashboard"""
     try:
-        # Load the data
-        df = pd.read_csv('data/processed/industry_analysis.csv')
+        # Load data
+        df = pd.read_csv('industry_analysis.csv')
         logger.info(f"Successfully loaded data with shape: {df.shape}")
         
+        # Ensure required columns exist
         required_columns = ['Risk_Score', 'Growth_Score', 'Quality_Score', 'PE', 'Industry']
         missing_columns = [col for col in required_columns if col not in df.columns]
-        
         if missing_columns:
-            logger.error(f"Missing required columns: {missing_columns}")
-            return pd.DataFrame(), None, None
-            
-        # Remove rows with NaN values
-        df = df.dropna(subset=required_columns)
+            raise ValueError(f"Missing required columns: {missing_columns}")
         
-        if len(df) == 0:
-            logger.error("No valid data points after removing NaN values")
-            return pd.DataFrame(), None, None
-            
-        # Dictionary to store industry-specific regression models
+        # Calculate PE Z-score for each industry
+        df['PE_ZScore'] = df.groupby('Industry')['PE'].transform(lambda x: stats.zscore(x, nan_policy='omit'))
+        
+        # Convert scores to Z-scores if they aren't already
+        df['Risk_Z'] = stats.zscore(df['Risk_Score'], nan_policy='omit')
+        df['Growth_Z'] = stats.zscore(df['Growth_Score'], nan_policy='omit')
+        df['Quality_Z'] = stats.zscore(df['Quality_Score'], nan_policy='omit')
+        
+        # Create combined score using PCA
+        X = df[['Risk_Z', 'Growth_Z', 'Quality_Z']].values
+        pca = PCA(n_components=1)
+        combined_score = pca.fit_transform(X).flatten()
+        df['Combined_Z'] = combined_score
+        
+        # Get PCA weights
+        pca_weights = {
+            'Risk_Weight': pca.components_[0][0],
+            'Growth_Weight': pca.components_[0][1],
+            'Quality_Weight': pca.components_[0][2]
+        }
+        explained_var = pca.explained_variance_ratio_[0]
+        
+        # Perform industry-specific regression
         industry_models = {}
-        
-        # Initialize prediction columns
         df['Predicted_PE'] = np.nan
-        df['PE_Z'] = np.nan
         df['Predicted_PE_Z'] = np.nan
         
         # Process each industry separately
@@ -91,92 +114,100 @@ def load_and_process_data():
             if len(industry_df) < 5:  # Skip industries with too few samples
                 continue
                 
-            # Prepare features - scores are already in z-scores
-            X = industry_df[['Risk_Score', 'Growth_Score', 'Quality_Score']].values
+            # Prepare features for this industry
+            X = industry_df[['Risk_Z', 'Growth_Z', 'Quality_Z']].values
+            y = industry_df['PE_ZScore'].values
             
-            # Convert PE to z-score for this industry
-            pe_scaler = StandardScaler()
-            pe_z = pe_scaler.fit_transform(industry_df[['PE']]).flatten()
+            # Skip if not enough valid samples
+            if len(y) < 5:
+                continue
             
-            # Store z-scores in dataframe
-            industry_df['Risk_Z'] = X[:, 0]
-            industry_df['Growth_Z'] = X[:, 1]
-            industry_df['Quality_Z'] = X[:, 2]
-            industry_df['PE_Z'] = pe_z
-            
-            # Perform ridge regression using z-scores for this industry
+            # Perform ridge regression for this industry
             alphas = np.logspace(-6, 6, 13)
-            model = RidgeCV(alphas=alphas, cv=5)
-            model.fit(X, pe_z)
+            model = RidgeCV(alphas=alphas, cv=min(5, len(y)))
+            model.fit(X, y)
             
             # Calculate predicted PE z-score
             predicted_pe_z = model.predict(X)
             industry_df['Predicted_PE_Z'] = predicted_pe_z
             
             # Convert predicted z-score back to PE
-            predicted_pe = pe_scaler.inverse_transform(predicted_pe_z.reshape(-1, 1)).flatten()
+            predicted_pe = industry_df['PE'].mean() + predicted_pe_z * industry_df['PE'].std()
             industry_df['Predicted_PE'] = predicted_pe
             
-            # Update the main dataframe with the processed data
-            df.loc[industry_df.index, ['Predicted_PE', 'PE_Z', 'Predicted_PE_Z', 'Risk_Z', 'Growth_Z', 'Quality_Z']] = industry_df[['Predicted_PE', 'PE_Z', 'Predicted_PE_Z', 'Risk_Z', 'Growth_Z', 'Quality_Z']]
+            # Calculate R-squared for this industry
+            r2 = r2_score(y, predicted_pe_z)
             
-            # Store the model and scaler for this industry
-            industry_models[industry] = {
-                'model': model,
-                'pe_scaler': pe_scaler
+            # Create coefficients dictionary
+            coefficients = {
+                'Risk_Weight': model.coef_[0],
+                'Growth_Weight': model.coef_[1],
+                'Quality_Weight': model.coef_[2],
+                'Intercept': model.intercept_
             }
             
-        # Perform PCA on the entire dataset for the combined score
-        X_all = df[['Risk_Score', 'Growth_Score', 'Quality_Score']].values
-        pca = PCA(n_components=1)
-        df['Combined_Score'] = pca.fit_transform(X_all).flatten()
-        
-        # Store PCA weights
-        df['PCA_Risk_Weight'] = pca.components_[0][0]
-        df['PCA_Growth_Weight'] = pca.components_[0][1]
-        df['PCA_Quality_Weight'] = pca.components_[0][2]
-        
-        return df, industry_models, pca
+            # Store industry statistics
+            industry_stats = {
+                'n_companies': len(industry_df),
+                'pe_mean': industry_df['PE'].mean(),
+                'pe_std': industry_df['PE'].std(),
+                'r2': r2
+            }
             
+            # Update the main dataframe with predictions
+            df.loc[industry_df.index, ['Predicted_PE', 'Predicted_PE_Z']] = \
+                industry_df[['Predicted_PE', 'Predicted_PE_Z']]
+            
+            # Store the model and statistics for this industry
+            industry_models[industry] = {
+                'model': model,
+                'coefficients': coefficients,
+                'stats': industry_stats
+            }
+        
+        return df, industry_models, pca_weights, explained_var
+        
     except Exception as e:
         logger.error(f"Error processing data: {str(e)}")
-        return pd.DataFrame(), None, None
+        return pd.DataFrame(), None, None, None
+
+def format_industry_equation(industry_model: Dict, industry: str) -> str:
+    """Format regression equation for a specific industry"""
+    coef = industry_model['coefficients']
+    stats = industry_model['stats']
+    
+    equation = f"Industry: {industry} (R² = {stats['r2']:.3f}, n = {stats['n_companies']})\n"
+    equation += f"PE_ZScore = {coef['Intercept']:.3f}"
+    
+    features = ['Risk_Weight', 'Growth_Weight', 'Quality_Weight']
+    feature_names = ['Risk_Z', 'Growth_Z', 'Quality_Z']
+    
+    for coef_name, feature_name in zip(features, feature_names):
+        value = coef[coef_name]
+        if value >= 0:
+            equation += f" + {value:.3f}×{feature_name}"
+        else:
+            equation += f" - {abs(value):.3f}×{feature_name}"
+    
+    equation += f"\nPE = (PE_ZScore × {stats['pe_std']:.2f}) + {stats['pe_mean']:.2f}"
+    
+    return equation
 
 # Load data once at startup
-initial_df, industry_models, pca_model = load_and_process_data()
+initial_df, industry_models, pca_weights, explained_var = load_and_process_data()
+
 if not initial_df.empty:
     available_industries = sorted(initial_df['Industry'].unique())
+    available_metrics = ['Risk_Z', 'Growth_Z', 'Quality_Z', 'Combined_Z']
 else:
     available_industries = []
-
-# Available metrics for plotting
-METRICS = {
-    'Combined_Score': 'Combined PCA Score',
-    'Risk_Score': 'Risk Score',
-    'Growth_Score': 'Growth Score',
-    'Quality_Score': 'Quality Score',
-    'Predicted_PE': 'Predicted P/E'
-}
-
-def format_equation(coef, intercept, feature_names):
-    """Format regression equation nicely"""
-    terms = []
-    for i, (name, value) in enumerate(zip(feature_names, coef)):
-        if i == 0:
-            terms.append(f"{value:.3f}×{name}")
-        else:
-            terms.append(f"{' + ' if value >= 0 else ' - '}{abs(value):.3f}×{name}")
-    equation = "PE = " + "".join(terms)
-    if intercept >= 0:
-        equation += f" + {intercept:.3f}"
-    else:
-        equation += f" - {abs(intercept):.3f}"
-    return equation
+    available_metrics = []
 
 # Create layout
 app.layout = html.Div([
     # Main container
     html.Div([
+        # Header
         html.H1('Stock Analysis Dashboard', style=STYLES['header']),
         
         # Data loading status
@@ -199,20 +230,32 @@ app.layout = html.Div([
                 html.Label('Select Metric:', style={'fontWeight': '500', 'marginBottom': '8px'}),
                 dcc.Dropdown(
                     id='metric-selector',
-                    options=[{'label': v, 'value': k} for k, v in METRICS.items()],
-                    value='Risk_Score',
+                    options=[{'label': METRICS.get(m, m), 'value': m} for m in available_metrics],
+                    value='Combined_Z' if available_metrics else None,
                     style={'width': '100%'}
                 )
             ], style={'width': '48%', 'display': 'inline-block', 'marginLeft': '4%'})
         ], style=STYLES['card']),
         
-        # Main scatter plot
+        # Scatter plots
         html.Div([
-            dcc.Loading(
-                id="loading-scatter",
-                type="circle",
-                children=dcc.Graph(id='main-scatter')
-            )
+            html.Div([
+                html.H3('Selected Metric vs P/E', style={'color': '#2c3e50', 'marginBottom': '15px'}),
+                dcc.Loading(
+                    id="loading-scatter-1",
+                    type="circle",
+                    children=dcc.Graph(id='main-scatter')
+                )
+            ], style={'width': '48%', 'display': 'inline-block', 'verticalAlign': 'top'}),
+            
+            html.Div([
+                html.H3('Combined Score vs P/E', style={'color': '#2c3e50', 'marginBottom': '15px'}),
+                dcc.Loading(
+                    id="loading-scatter-2",
+                    type="circle",
+                    children=dcc.Graph(id='combined-scatter')
+                )
+            ], style={'width': '48%', 'display': 'inline-block', 'verticalAlign': 'top', 'marginLeft': '4%'})
         ], style=STYLES['card']),
         
         # Model Information and Statistics
@@ -244,10 +287,11 @@ def update_data_status(selected_industry):
             filtered_df = initial_df[initial_df['Industry'] == selected_industry]
             return f"Showing data for {selected_industry} with {len(filtered_df)} companies"
         return f"No industry selected. Please select from {len(available_industries)} available industries."
-    return "Error: No data loaded. Please check the data file exists in data/processed/industry_analysis.csv"
+    return "Error: No data loaded. Please check the data file exists in the current directory."
 
 @callback(
     [Output('main-scatter', 'figure'),
+     Output('combined-scatter', 'figure'),
      Output('stats-panel', 'children'),
      Output('model-info', 'children'),
      Output('equations-panel', 'children')],
@@ -256,7 +300,7 @@ def update_data_status(selected_industry):
 )
 def update_scatter(selected_metric, selected_industry):
     if initial_df.empty or not selected_industry or not selected_metric:
-        return go.Figure(), "", "", ""
+        return go.Figure(), go.Figure(), "", "", ""
     
     # Filter for selected industry
     df = initial_df[initial_df['Industry'] == selected_industry].copy()
@@ -264,109 +308,85 @@ def update_scatter(selected_metric, selected_industry):
     # Get the industry-specific model
     industry_model = industry_models.get(selected_industry)
     if industry_model is None:
-        return go.Figure(), "", "", ""
+        return go.Figure(), go.Figure(), "", "", ""
     
-    regression_model = industry_model['model']
-    pe_scaler = industry_model['pe_scaler']
-    
-    # Create scatter plot
-    fig = px.scatter(df, 
+    # Create main scatter plot
+    fig1 = px.scatter(df, 
                     x=selected_metric,
                     y='PE',
                     hover_data=['Ticker', 'Industry', 'PE', selected_metric],
                     trendline="ols")
     
-    fig.update_layout(
+    fig1.update_layout(
         title=f'P/E Ratio vs {METRICS[selected_metric]} for {selected_industry}',
         xaxis_title=METRICS[selected_metric],
         yaxis_title='P/E Ratio',
-        height=600,
+        height=500,
+        hovermode='closest',
+        template='plotly_white',
+        font=dict(family="Inter, sans-serif")
+    )
+    
+    # Create combined score scatter plot
+    fig2 = px.scatter(df, 
+                    x='Combined_Z',
+                    y='PE',
+                    hover_data=['Ticker', 'Industry', 'PE', 'Combined_Z'],
+                    trendline="ols")
+    
+    fig2.update_layout(
+        title=f'P/E Ratio vs Combined Score for {selected_industry}',
+        xaxis_title='Combined Score (Z)',
+        yaxis_title='P/E Ratio',
+        height=500,
         hovermode='closest',
         template='plotly_white',
         font=dict(family="Inter, sans-serif")
     )
     
     # Calculate statistics
-    correlation = df[['PE', selected_metric]].corr().iloc[0, 1]
-    mean_pe = df['PE'].mean()
-    std_pe = df['PE'].std()
-    
-    if selected_metric == 'Predicted_PE':
-        r2 = r2_score(df['PE'], df['Predicted_PE'])
-        rmse = np.sqrt(np.mean((df['PE'] - df['Predicted_PE'])**2))
-    else:
-        r2 = correlation**2
-        rmse = None
+    stats = industry_model['stats']
+    coefficients = industry_model['coefficients']
     
     stats_panel = html.Div([
         html.H3('Statistics', style={'color': '#2c3e50', 'marginBottom': '15px'}),
         html.Div([
-            html.P(f'Correlation with P/E: {correlation:.3f}'),
-            html.P(f'R²: {r2:.3f}'),
-            html.P(f'Mean P/E: {mean_pe:.2f}'),
-            html.P(f'P/E Standard Deviation: {std_pe:.2f}'),
-            *([] if rmse is None else [html.P(f'Root Mean Square Error: {rmse:.2f}')])
+            html.P(f'Number of Companies: {stats["n_companies"]}'),
+            html.P(f'R²: {stats["r2"]:.3f}'),
+            html.P(f'Industry P/E Mean: {stats["pe_mean"]:.2f}'),
+            html.P(f'Industry P/E Std Dev: {stats["pe_std"]:.2f}'),
+            html.P(f'PCA Explained Variance: {explained_var:.3f}')
         ], style={'lineHeight': '1.6'})
     ])
     
     # Model information
-    if selected_metric == 'Combined_Score' and pca_model is not None:
-        model_info = html.Div([
-            html.H3('PCA Model Information', style={'color': '#2c3e50', 'marginBottom': '15px'}),
-            html.P(f'Explained Variance Ratio: {pca_model.explained_variance_ratio_[0]:.3f}'),
-            html.P('Component Weights:'),
+    model_info = html.Div([
+        html.H3('Model Coefficients', style={'color': '#2c3e50', 'marginBottom': '15px'}),
+        html.Div([
+            html.H4('Regression Coefficients:', style={'marginTop': '15px', 'marginBottom': '10px'}),
             html.Ul([
-                html.Li(f'Risk Score: {pca_model.components_[0][0]:.3f}'),
-                html.Li(f'Growth Score: {pca_model.components_[0][1]:.3f}'),
-                html.Li(f'Quality Score: {pca_model.components_[0][2]:.3f}')
+                html.Li(f'Risk Score: {coefficients["Risk_Weight"]:.3f}'),
+                html.Li(f'Growth Score: {coefficients["Growth_Weight"]:.3f}'),
+                html.Li(f'Quality Score: {coefficients["Quality_Weight"]:.3f}'),
+                html.Li(f'Intercept: {coefficients["Intercept"]:.3f}')
+            ], style={'listStyleType': 'none', 'padding': '0'}),
+            html.H4('PCA Weights:', style={'marginTop': '15px', 'marginBottom': '10px'}),
+            html.Ul([
+                html.Li(f'Risk Weight: {pca_weights["Risk_Weight"]:.3f}'),
+                html.Li(f'Growth Weight: {pca_weights["Growth_Weight"]:.3f}'),
+                html.Li(f'Quality Weight: {pca_weights["Quality_Weight"]:.3f}')
             ], style={'listStyleType': 'none', 'padding': '0'})
         ])
-    elif selected_metric == 'Predicted_PE' and regression_model is not None:
-        model_info = html.Div([
-            html.H3(f'Ridge Regression Model for {selected_industry}', style={'color': '#2c3e50', 'marginBottom': '15px'}),
-            html.P(f'Alpha: {regression_model.alpha_:.3e}'),
-            html.P('Coefficients:'),
-            html.Ul([
-                html.Li(f'Risk Score (Z): {regression_model.coef_[0]:.3f}'),
-                html.Li(f'Growth Score (Z): {regression_model.coef_[1]:.3f}'),
-                html.Li(f'Quality Score (Z): {regression_model.coef_[2]:.3f}'),
-                html.Li(f'Intercept: {regression_model.intercept_:.3f}')
-            ], style={'listStyleType': 'none', 'padding': '0'})
-        ])
-    else:
-        model_info = ""
+    ])
     
     # Equations panel
-    if regression_model is not None:
-        feature_names = ['Risk_Z', 'Growth_Z', 'Quality_Z']
-        
-        # P/E Z-score equation
-        pe_zscore_eq = format_equation(
-            regression_model.coef_,
-            regression_model.intercept_,
-            feature_names
-        )
-        
-        # Get PE statistics from the scaler
-        pe_std = pe_scaler.scale_[0]
-        pe_mean = pe_scaler.mean_[0]
-        
-        # P/E from Z-score equation
-        pe_eq = f"P/E = (P/E Z-score × {pe_std:.2f}) + {pe_mean:.2f}"
-        
-        equations_panel = html.Div([
-            html.H3(f'Model Equations for {selected_industry}', style={'color': '#2c3e50', 'marginBottom': '15px'}),
-            html.Div([
-                html.P('P/E Z-score Prediction:', style={'fontWeight': '500'}),
-                html.Div(pe_zscore_eq, style=STYLES['equation']),
-                html.P('P/E from Z-score:', style={'fontWeight': '500', 'marginTop': '15px'}),
-                html.Div(pe_eq, style=STYLES['equation'])
-            ])
-        ])
-    else:
-        equations_panel = ""
+    equation_text = format_industry_equation(industry_model, selected_industry)
+    equations_panel = html.Div([
+        html.H3('Model Equations', style={'color': '#2c3e50', 'marginBottom': '15px'}),
+        html.Pre(equation_text, style=STYLES['equation'])
+    ])
     
-    return fig, stats_panel, model_info, equations_panel
+    return fig1, fig2, stats_panel, model_info, equations_panel
 
 if __name__ == '__main__':
     app.run_server(debug=True)
