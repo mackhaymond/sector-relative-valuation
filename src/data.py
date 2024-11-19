@@ -161,6 +161,13 @@ async def process_data(df: pd.DataFrame, metrics: Dict[str, Dict[str, str]]) -> 
     mask = (abs(df["Risk_Score"]) <= 3) & (abs(df["Growth_Score"]) <= 3) & (abs(df["Quality_Score"]) <= 3)
     df = df[mask]
     
+    # Keep only essential columns
+    columns_to_keep = ["Industry", "Ticker", "Risk_Score", "Growth_Score", "Quality_Score"]
+    if "PE_ZScore" in df.columns:
+        columns_to_keep.append("PE_ZScore")
+    
+    df = df[columns_to_keep]
+    
     return df
 
 async def process_industry_async(industry: str, metrics: Dict[str, Dict[str, str]]) -> pd.DataFrame:
