@@ -182,11 +182,15 @@ async def process_industry_async(industry: str, metrics: Dict[str, Dict[str, str
         # Convert to DataFrame
         df = pd.DataFrame(company_data_list)
         
+        if df is None or df.empty:
+            print(f"No data available for industry {industry}")
+            return None
+            
+        # Add industry column before processing
+        df["Industry"] = industry
+        
         # Process data
         df = await process_data(df, metrics)
-        
-        if df is not None:
-            df["Industry"] = industry
         return df
     except Exception as e:
         print(f"Error processing industry {industry}: {e}")
