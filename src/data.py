@@ -71,7 +71,7 @@ METRICS = {
 
 # API Settings
 MAX_CONCURRENT_REQUESTS = 2
-REQUEST_DELAY = 0.5  # seconds
+REQUEST_DELAY = 0.2  # seconds
 INDUSTRY_DELAY = 1.0  # seconds
 
 #######################
