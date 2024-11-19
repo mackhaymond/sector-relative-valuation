@@ -16,7 +16,7 @@ from typing import Dict, List
 # Target Industries for Analysis
 INDUSTRIES = [
     "software-infrastructure",
-    "semiconductors",
+    #"semiconductors",
     # Add more industries as needed
 ]
 
@@ -156,6 +156,10 @@ async def process_data(df: pd.DataFrame, metrics: Dict[str, Dict[str, str]]) -> 
                             if f"{metric}_ZScore" in df.columns]].mean(axis=1)
     df["Quality_Score"] = df[[f"{metric}_ZScore" for metric in X3_QUALITY_METRICS.keys() 
                              if f"{metric}_ZScore" in df.columns]].mean(axis=1)
+    
+    # Filter out data points with extreme z-scores (>3 standard deviations)
+    mask = (abs(df["Risk_Score"]) <= 3) & (abs(df["Growth_Score"]) <= 3) & (abs(df["Quality_Score"]) <= 3)
+    df = df[mask]
     
     return df
 
