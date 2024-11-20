@@ -158,13 +158,13 @@ async def process_data(df: pd.DataFrame, metrics: Dict[str, Dict[str, str]]) -> 
                              if f"{metric}_ZScore" in df.columns]].mean(axis=1)
     
     # Filter out data points with extreme z-scores (>3 standard deviations)
-    mask = (abs(df["Risk_Score"]) <= 3) & (abs(df["Growth_Score"]) <= 3) & (abs(df["Quality_Score"]) <= 3)
+    mask = (abs(df["Risk_Score"]) <= 2.5) & (abs(df["Growth_Score"]) <= 2.5) & (abs(df["Quality_Score"]) <= 2.5)
     df = df[mask]
     
     # Keep only essential columns
     columns_to_keep = ["Industry", "Ticker", "Risk_Score", "Growth_Score", "Quality_Score"]
-    if "PE_ZScore" in df.columns:
-        columns_to_keep.append("PE_ZScore")
+    if "PE" in df.columns:
+        columns_to_keep.extend(["PE", "PE_ZScore"])
     
     df = df[columns_to_keep]
     
