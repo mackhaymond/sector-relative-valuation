@@ -147,7 +147,10 @@ async def process_data(df: pd.DataFrame, metrics: Dict[str, Dict[str, str]]) -> 
     
     # Calculate PE Z-score separately (our target variable)
     if "PE" in df.columns:
-        df["PE_ZScore"] = zscore(df["PE"].fillna(df["PE"].mean()), nan_policy='omit')
+        # Remove companies with no P/E values
+        df = df.dropna(subset=["PE"])
+        # Calculate z-score only for remaining companies
+        df["PE_ZScore"] = zscore(df["PE"], nan_policy='omit')
     
     # Calculate composite scores for each category
     df["Risk_Score"] = df[[f"{metric}_ZScore" for metric in X1_RISK_METRICS.keys() 
@@ -158,7 +161,10 @@ async def process_data(df: pd.DataFrame, metrics: Dict[str, Dict[str, str]]) -> 
                              if f"{metric}_ZScore" in df.columns]].mean(axis=1)
     
     # Filter out data points with extreme z-scores (>3 standard deviations)
-    mask = (abs(df["Risk_Score"]) <= 2.5) & (abs(df["Growth_Score"]) <= 2.5) & (abs(df["Quality_Score"]) <= 2.5)
+    mask = (abs(df["Risk_Score"]) <= 2.5) & \
+           (abs(df["Growth_Score"]) <= 2.5) & \
+           (abs(df["Quality_Score"]) <= 2.5) & \
+           (abs(df["PE_ZScore"]) <= 2.5)  
     df = df[mask]
     
     # Keep only essential columns
