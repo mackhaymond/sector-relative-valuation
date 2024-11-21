@@ -37,5 +37,4 @@ data['magic_score'] = (
     data['Quality_Score'] * weights_df.loc[weights_df['Feature'] == 'Quality_Score', 'Weight (%)'].values[0]
 ) / 100  # Divide by 100 to convert percentage to decimal
 
-
-print(data)
+data.to_csv('industry_analysis.csv', index=False)
