@@ -210,7 +210,7 @@ async def analyze_industries_async(industries: List[str] = INDUSTRIES) -> pd.Dat
     # Combine all results
     if all_results:
         final_df = pd.concat(all_results, ignore_index=False)  # Keep index to preserve tickers
-        final_df.to_csv("industry_analysis.csv")  # Save to correct location
+        final_df.to_csv("industry_analysis.csv", index=False)  # Save to correct location
         return final_df
     else:
         print("No results were successfully processed.")
