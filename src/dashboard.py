@@ -34,105 +34,82 @@ COLORS = {
     'text': '#2c3e50',
     'primary': '#3498db',
     'secondary': '#e74c3c',
-    'accent': '#2ecc71'
+    'accent': '#2ecc71',
+    'light_gray': '#f0f0f0',
+    'border': '#e1e4e8'
+}
+
+FONT_FAMILY = 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
+
+STYLES = {
+    'container': {
+        'padding': '40px',
+        'backgroundColor': COLORS['background'],
+        'minHeight': '100vh'
+    },
+    'card': {
+        'backgroundColor': 'white',
+        'padding': '24px',
+        'borderRadius': '12px',
+        'boxShadow': '0 2px 8px rgba(0,0,0,0.1)',
+        'marginBottom': '24px'
+    },
+    'title': {
+        'fontFamily': FONT_FAMILY,
+        'fontSize': '32px',
+        'fontWeight': '600',
+        'color': COLORS['text'],
+        'marginBottom': '32px',
+        'textAlign': 'center'
+    },
+    'label': {
+        'fontFamily': FONT_FAMILY,
+        'fontSize': '16px',
+        'fontWeight': '500',
+        'color': COLORS['text'],
+        'marginBottom': '8px',
+        'display': 'block'
+    },
+    'dropdown': {
+        'width': '100%',
+        'maxWidth': '500px',
+        'fontFamily': FONT_FAMILY,
+        'fontSize': '14px'
+    }
 }
 
 # Create the layout
 app.layout = html.Div([
-    html.H1(
-        'Stock Analysis Dashboard',
-        style={
-            'textAlign': 'center',
-            'color': COLORS['text'],
-            'marginBottom': 40,
-            'fontFamily': 'Helvetica Neue, Arial, sans-serif',
-            'fontSize': '2.5rem',
-            'fontWeight': '600',
-            'paddingTop': '20px'
-        }
-    ),
+    html.H1('Stock Analysis Dashboard', style=STYLES['title']),
     
     html.Div([
-        html.Label(
-            'Select Sector:',
-            style={
-                'fontSize': '1.2rem',
-                'marginRight': 15,
-                'fontFamily': 'Helvetica Neue, Arial, sans-serif',
-                'color': COLORS['text'],
-                'fontWeight': '500'
-            }
-        ),
+        html.Label('Select Sector:', style=STYLES['label']),
         dcc.Dropdown(
             id='sector-dropdown',
             options=[{'label': GICS_SECTOR_MAPPING[sector], 'value': sector} for sector in df['Sector'].unique()],
             value=df['Sector'].iloc[0],
             clearable=False,
-            style={
-                'width': '50%',
-                'fontFamily': 'Helvetica Neue, Arial, sans-serif',
-                'fontSize': '1rem'
-            }
+            style=STYLES['dropdown']
         )
-    ], style={
-        'marginBottom': 30,
-        'padding': '20px',
-        'backgroundColor': 'white',
-        'borderRadius': '8px',
-        'boxShadow': '0 2px 4px rgba(0,0,0,0.1)'
-    }),
+    ], style=STYLES['card']),
     
     html.Div([
-        html.Label(
-            'Select Company:',
-            style={
-                'fontSize': '1.2rem',
-                'marginRight': 15,
-                'fontFamily': 'Helvetica Neue, Arial, sans-serif',
-                'color': COLORS['text'],
-                'fontWeight': '500'
-            }
-        ),
+        html.Label('Select Company:', style=STYLES['label']),
         dcc.Dropdown(
             id='company-dropdown',
             options=[],
             value=None,
             clearable=False,
-            style={
-                'width': '50%',
-                'fontFamily': 'Helvetica Neue, Arial, sans-serif',
-                'fontSize': '1rem'
-            }
+            style=STYLES['dropdown']
         )
-    ], style={
-        'marginBottom': 30,
-        'padding': '20px',
-        'backgroundColor': 'white',
-        'borderRadius': '8px',
-        'boxShadow': '0 2px 4px rgba(0,0,0,0.1)'
-    }),
+    ], style=STYLES['card']),
     
     html.Div([
         dcc.Graph(id='scatter-plot')
-    ], style={
-        'backgroundColor': 'white',
-        'padding': '20px',
-        'borderRadius': '8px',
-        'boxShadow': '0 2px 4px rgba(0,0,0,0.1)'
-    }),
+    ], style=STYLES['card']),
     
-    html.Div(id='company-info', style={
-        'marginTop': 30,
-        'padding': '20px',
-        'backgroundColor': 'white',
-        'borderRadius': '8px',
-        'boxShadow': '0 2px 4px rgba(0,0,0,0.1)'
-    })
-], style={
-    'padding': '40px',
-    'backgroundColor': COLORS['background'],
-    'minHeight': '100vh'
-})
+    html.Div(id='company-info', style=STYLES['card'])
+], style=STYLES['container'])
 
 @app.callback(
     Output('company-dropdown', 'options'),
@@ -149,17 +126,30 @@ def update_company_dropdown(selected_sector):
     Input('company-dropdown', 'value')
 )
 def update_graph(selected_sector, selected_company):
-    # Filter data for selected sector
-    filtered_df = df[df['Sector'] == selected_sector]
+    # Create a copy of the filtered dataframe to avoid SettingWithCopyWarning
+    filtered_df = df[df['Sector'] == selected_sector].copy()
     
-    # Calculate line of best fit
     x = filtered_df['magic_score']
     y = filtered_df['PE']
     fit = np.polyfit(x, y, 1)
     line_x = np.array([x.min(), x.max()])
     line_y = fit[0] * line_x + fit[1]
     
-    # Create scatter plot
+    # Calculate predicted P/E values and deviations using .loc
+    filtered_df.loc[:, 'predicted_pe'] = fit[0] * filtered_df['magic_score'] + fit[1]
+    filtered_df.loc[:, 'pe_deviation'] = filtered_df['PE'] - filtered_df['predicted_pe']
+    
+    # Find maximum deviation in sector for bar chart range
+    max_deviation = abs(filtered_df['pe_deviation']).max()
+    deviation_range = [-max_deviation, max_deviation]
+    
+    # Calculate y-axis range with padding
+    max_pe = df['PE'].max()
+    min_pe = df['PE'].min()
+    pe_range = max_pe - min_pe
+    y_min = max(0, min_pe - pe_range * 0.1)
+    y_max = max_pe + pe_range * 0.1
+    
     fig = go.Figure()
     
     # Add scatter points
@@ -174,9 +164,9 @@ def update_graph(selected_sector, selected_company):
         ),
         hoverinfo='text',
         marker=dict(
-            size=12,
+            size=10,
             color=COLORS['primary'],
-            line=dict(width=2, color='white'),
+            line=dict(width=1.5, color='white'),
             opacity=0.8
         )
     ))
@@ -190,7 +180,7 @@ def update_graph(selected_sector, selected_company):
         line=dict(color=COLORS['secondary'], dash='dash', width=2)
     ))
     
-    # Highlight selected company's dot
+    # Highlight selected company
     if selected_company:
         company_data = filtered_df[filtered_df['Ticker'] == selected_company].iloc[0]
         fig.add_trace(go.Scatter(
@@ -202,87 +192,187 @@ def update_graph(selected_sector, selected_company):
                 size=14,
                 color=COLORS['accent'],
                 line=dict(width=2, color='white'),
-                opacity=1.0
+                symbol='star'
             )
         ))
         
-        # Display company information
+        # Create deviation bar chart
+        deviation_fig = go.Figure()
+        
+        # Calculate the range for the bar
+        actual_pe = company_data['PE']
+        predicted_pe = company_data['predicted_pe']
+        pe_min = min(actual_pe, predicted_pe)
+        pe_max = max(actual_pe, predicted_pe)
+        
+        # Add the bar showing range from predicted to actual P/E
+        deviation_fig.add_trace(go.Bar(
+            x=[pe_max - pe_min],  # Length of the bar
+            y=['P/E Range'],
+            orientation='h',
+            marker=dict(
+                color=COLORS['accent'] if actual_pe < predicted_pe else COLORS['secondary']
+            ),
+            base=[pe_min],  # Start position of the bar
+            text=[f"Actual: {actual_pe:.1f}"],
+            textposition='outside',
+            hoverinfo='text',
+            hovertext=[f"Actual P/E: {actual_pe:.2f}<br>Predicted P/E: {predicted_pe:.2f}<br>Deviation: {company_data['pe_deviation']:.2f}"]
+        ))
+        
+        # Add vertical line at predicted value
+        deviation_fig.add_vline(
+            x=predicted_pe,
+            line_width=2,
+            line_dash="solid",
+            line_color=COLORS['text'],
+            annotation=dict(
+                text=f"Predicted: {predicted_pe:.1f}",
+                font=dict(
+                    family=FONT_FAMILY,
+                    size=12,
+                    color=COLORS['text']
+                ),
+                yshift=10
+            )
+        )
+        
+        # Calculate the range for the x-axis
+        sector_max_pe = filtered_df['PE'].max()
+        sector_min_pe = filtered_df['PE'].min()
+        pe_range = sector_max_pe - sector_min_pe
+        x_min = max(0, sector_min_pe - pe_range * 0.1)
+        x_max = sector_max_pe + pe_range * 0.1
+        
+        # Update deviation chart layout
+        deviation_fig.update_layout(
+            title=dict(
+                text='Actual vs. Predicted P/E Ratio',
+                font=dict(
+                    family=FONT_FAMILY,
+                    size=16,
+                    color=COLORS['text']
+                ),
+                x=0.5,
+                xanchor='center'
+            ),
+            xaxis=dict(
+                title='P/E Ratio',
+                range=[x_min, x_max],
+                tickfont=dict(
+                    family=FONT_FAMILY,
+                    size=12
+                ),
+                gridcolor=COLORS['light_gray']
+            ),
+            yaxis=dict(
+                showticklabels=False,
+                fixedrange=True
+            ),
+            height=150,
+            margin=dict(l=20, r=20, t=40, b=20),
+            plot_bgcolor='white',
+            paper_bgcolor='white',
+            showlegend=False
+        )
+        
+        # Display company information with deviation chart
         company_info = html.Div([
-            html.H3(f"Company: {company_data['Ticker']}"),
-            html.P(f"P/E Ratio: {company_data['PE']:.2f}"),
-            html.P(f"Magic Score: {company_data['magic_score']:.2f}"),
+            html.H3(f"{company_data['Ticker']}", style={
+                'fontFamily': FONT_FAMILY,
+                'fontSize': '24px',
+                'fontWeight': '600',
+                'color': COLORS['text'],
+                'marginBottom': '16px'
+            }),
             html.Div([
-                html.Label('P/E Ratio Difference:'),
-                dcc.Graph(
-                    figure=go.Figure(go.Bar(
-                        x=[company_data['PE'] - (fit[0] * company_data['magic_score'] + fit[1])],
-                        y=[''],
-                        orientation='h',
-                        marker=dict(
-                            color=COLORS['secondary'] if company_data['PE'] > (fit[0] * company_data['magic_score'] + fit[1]) else COLORS['accent']
-                        )
-                    ))
-                )
-            ], style={'marginTop': 20})
+                html.P(f"P/E Ratio: {company_data['PE']:.2f}", style={
+                    'fontFamily': FONT_FAMILY,
+                    'fontSize': '16px',
+                    'color': COLORS['text'],
+                    'marginBottom': '8px'
+                }),
+                html.P(f"Predicted P/E: {company_data['predicted_pe']:.2f}", style={
+                    'fontFamily': FONT_FAMILY,
+                    'fontSize': '16px',
+                    'color': COLORS['text'],
+                    'marginBottom': '8px'
+                }),
+                html.P(f"Magic Score: {company_data['magic_score']:.2f}", style={
+                    'fontFamily': FONT_FAMILY,
+                    'fontSize': '16px',
+                    'color': COLORS['text'],
+                    'marginBottom': '16px'
+                })
+            ]),
+            dcc.Graph(
+                figure=deviation_fig,
+                config={'displayModeBar': False}
+            )
         ])
     else:
         company_info = None
-    
+
     # Update layout
     fig.update_layout(
         title=dict(
-            text=f'P/E Ratio vs Magic Score for {GICS_SECTOR_MAPPING[selected_sector]}',
+            text=f'Magic Formula Score vs P/E Ratio - {GICS_SECTOR_MAPPING[selected_sector]}',
             font=dict(
-                family='Helvetica Neue, Arial, sans-serif',
+                family=FONT_FAMILY,
                 size=24,
                 color=COLORS['text']
             ),
             x=0.5,
-            y=0.95
+            xanchor='center'
         ),
-        xaxis_title=dict(
-            text='Magic Score',
-            font=dict(
-                family='Helvetica Neue, Arial, sans-serif',
+        xaxis=dict(
+            title='Magic Formula Score',
+            titlefont=dict(
+                family=FONT_FAMILY,
                 size=16,
                 color=COLORS['text']
-            )
+            ),
+            tickfont=dict(
+                family=FONT_FAMILY,
+                size=14
+            ),
+            showgrid=True,
+            gridcolor=COLORS['light_gray'],
+            gridwidth=1,
+            zeroline=False
         ),
-        yaxis_title=dict(
-            text='P/E Ratio',
-            font=dict(
-                family='Helvetica Neue, Arial, sans-serif',
+        yaxis=dict(
+            title='P/E Ratio',
+            titlefont=dict(
+                family=FONT_FAMILY,
                 size=16,
                 color=COLORS['text']
-            )
+            ),
+            tickfont=dict(
+                family=FONT_FAMILY,
+                size=14
+            ),
+            showgrid=True,
+            gridcolor=COLORS['light_gray'],
+            gridwidth=1,
+            zeroline=False,
+            range=[y_min, y_max]
         ),
-        hovermode='closest',
-        template='plotly_white',
-        showlegend=True,
         legend=dict(
             font=dict(
-                family='Helvetica Neue, Arial, sans-serif',
+                family=FONT_FAMILY,
                 size=14,
                 color=COLORS['text']
-            )
+            ),
+            bgcolor='rgba(255,255,255,0.8)',
+            bordercolor=COLORS['border'],
+            borderwidth=1
         ),
-        paper_bgcolor='white',
         plot_bgcolor='white',
-        margin=dict(t=100, b=80, l=60, r=40)
-    )
-    
-    # Update axes
-    fig.update_xaxes(
-        showgrid=True,
-        gridwidth=1,
-        gridcolor='#f0f0f0',
-        zeroline=False
-    )
-    fig.update_yaxes(
-        showgrid=True,
-        gridwidth=1,
-        gridcolor='#f0f0f0',
-        zeroline=False
+        paper_bgcolor='white',
+        hovermode='closest',
+        margin=dict(t=100, b=60, l=60, r=40),
+        showlegend=True
     )
     
     return fig, company_info
