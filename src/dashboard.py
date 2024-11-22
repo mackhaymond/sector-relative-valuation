@@ -3,6 +3,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import numpy as np
 from dash import Dash, dcc, html, Input, Output
+import os
 
 # GICS Sector Mapping
 GICS_SECTOR_MAPPING = {
@@ -378,4 +379,4 @@ def update_graph(selected_sector, selected_company):
     return fig, company_info
 
 if __name__ == '__main__':
-    app.run_server(debug=True)
+    app.run_server(debug=True, port=os.getenv('PORT', 8050))
