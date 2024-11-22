@@ -13,11 +13,19 @@ from typing import Dict, List
 # MASTER VARIABLES
 #######################
 
-# Target Industries for Analysis
-INDUSTRIES = [
-    "software-infrastructure",
-    #"semiconductors",
-    # Add more industries as needed
+# Target Sectors for Analysis
+SECTORS = [
+    "basic-materials",
+    "communication-services",
+    "consumer-cyclical",
+    "consumer-defensive",
+    "energy",
+    "financial-services",
+    "healthcare",
+    "industrials",
+    "real-estate",
+    "technology",
+    "utilities"
 ]
 
 # Independent Variables (X) for Regression
@@ -71,7 +79,7 @@ METRICS = {
 
 # API Settings
 MAX_CONCURRENT_REQUESTS = 2
-REQUEST_DELAY = 0.2  # seconds
+REQUEST_DELAY = 0.5  # seconds
 INDUSTRY_DELAY = 1.0  # seconds
 
 #######################
@@ -132,6 +140,45 @@ async def process_companies_async(companies: List[str], all_metrics: Dict[str, s
     
     return company_data_list
 
+async def get_sector_companies(sector: str) -> List[str]:
+    """Get companies for a given sector using yfinance."""
+    try:
+        # Use yfinance to get sector companies
+        sector_obj = yf.Sector(sector)
+        return list(sector_obj.top_companies.index)
+    except Exception as e:
+        print(f"Error getting companies for sector {sector}: {e}")
+        return []
+
+async def process_sector_async(sector: str, metrics: Dict[str, Dict[str, str]]) -> pd.DataFrame:
+    """Process a single sector asynchronously."""
+    try:
+        companies = await get_sector_companies(sector)
+        
+        if not companies:
+            print(f"No companies found for sector {sector}")
+            return None
+            
+        # Get raw data
+        company_data_list = await process_companies_async(companies, metrics["all_metrics"])
+        
+        # Convert to DataFrame
+        df = pd.DataFrame(company_data_list)
+        
+        if df is None or df.empty:
+            print(f"No data available for sector {sector}")
+            return None
+            
+        # Add sector column before processing
+        df["Sector"] = sector
+        
+        # Process data
+        df = await process_data(df, metrics)
+        return df
+    except Exception as e:
+        print(f"Error processing sector {sector}: {e}")
+        return None
+
 async def process_data(df: pd.DataFrame, metrics: Dict[str, Dict[str, str]]) -> pd.DataFrame:
     """Process the collected data by calculating z-scores and composite scores"""
     if df.empty:
@@ -168,7 +215,7 @@ async def process_data(df: pd.DataFrame, metrics: Dict[str, Dict[str, str]]) -> 
     df = df[mask]
     
     # Keep only essential columns
-    columns_to_keep = ["Industry", "Ticker", "Risk_Score", "Growth_Score", "Quality_Score"]
+    columns_to_keep = ["Sector", "Ticker", "Risk_Score", "Growth_Score", "Quality_Score"]
     if "PE" in df.columns:
         columns_to_keep.extend(["PE", "PE_ZScore"])
     
@@ -176,52 +223,27 @@ async def process_data(df: pd.DataFrame, metrics: Dict[str, Dict[str, str]]) -> 
     
     return df
 
-async def process_industry_async(industry: str, metrics: Dict[str, Dict[str, str]]) -> pd.DataFrame:
-    """Process a single industry asynchronously."""
-    try:
-        ind = yf.Industry(industry)
-        companies = ind.top_companies.index
-        
-        # Get raw data
-        company_data_list = await process_companies_async(companies, metrics["all_metrics"])
-        
-        # Convert to DataFrame
-        df = pd.DataFrame(company_data_list)
-        
-        if df is None or df.empty:
-            print(f"No data available for industry {industry}")
-            return None
-            
-        # Add industry column before processing
-        df["Industry"] = industry
-        
-        # Process data
-        df = await process_data(df, metrics)
-        return df
-    except Exception as e:
-        print(f"Error processing industry {industry}: {e}")
-        return None
-
-async def analyze_industries_async(industries: List[str] = INDUSTRIES) -> pd.DataFrame:
-    """Analyze industries with controlled concurrency."""
-    all_results = []
+async def analyze_sectors_async(sectors: List[str] = SECTORS) -> pd.DataFrame:
+    """Analyze multiple sectors with controlled concurrency."""
+    all_data = []
     
-    # Process industries sequentially to maintain control
-    for industry in tqdm(industries, desc="Processing industries"):
-        result = await process_industry_async(industry, METRICS)
-        if result is not None:
-            all_results.append(result)
-        await asyncio.sleep(INDUSTRY_DELAY)  # Add delay between industries
+    for sector in tqdm(sectors, desc="Processing sectors"):
+        await asyncio.sleep(INDUSTRY_DELAY)  # Rate limiting between sectors
+        sector_data = await process_sector_async(sector, METRICS)
+        if sector_data is not None:
+            all_data.append(sector_data)
     
-    # Combine all results
-    if all_results:
-        final_df = pd.concat(all_results, ignore_index=False)  # Keep index to preserve tickers
-        final_df.to_csv("industry_analysis.csv", index=False)  # Save to correct location
-        return final_df
-    else:
-        print("No results were successfully processed.")
+    if not all_data:
+        print("No data was collected successfully.")
         return None
+    
+    # Combine all sector data
+    combined_data = pd.concat(all_data, ignore_index=True)
+    
+    # Save to CSV
+    combined_data.to_csv("sector_analysis.csv", index=False)
+    return combined_data
 
 if __name__ == "__main__":
     # Run the async analysis
-    results = asyncio.run(analyze_industries_async())
+    results = asyncio.run(analyze_sectors_async())
