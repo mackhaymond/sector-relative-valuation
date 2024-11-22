@@ -379,4 +379,4 @@ def update_graph(selected_sector, selected_company):
     return fig, company_info
 
 if __name__ == '__main__':
-    app.run_server(debug=True, port=os.getenv('PORT', 8050))
+    app.run_server(debug=True, port=os.getenv('PORT', 8050), host='0.0.0.0')
