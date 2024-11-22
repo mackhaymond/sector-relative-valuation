@@ -1,14 +1,14 @@
 # Default recipe
 default: dash
 
-# Download and process data
+# Download data
 data:
-    python src/data_processing.py
+    python3 src/data.py
 
-# Generate portfolio weights
+# Generate weights
 weights:
-    python src/portfolio_optimization.py
+    python3 src/generate_weights.py
 
 # Run the dashboard
 dash:
-    python src/dashboard.py
+    python3 src/dashboard.py
