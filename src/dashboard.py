@@ -4,8 +4,23 @@ import plotly.graph_objects as go
 import numpy as np
 from dash import Dash, dcc, html, Input, Output
 
+# GICS Sector Mapping
+GICS_SECTOR_MAPPING = {
+    "basic-materials": "Materials",
+    "communication-services": "Communication Services",
+    "consumer-cyclical": "Consumer Discretionary",
+    "consumer-defensive": "Consumer Staples",
+    "energy": "Energy",
+    "financial-services": "Financials",
+    "healthcare": "Health Care",
+    "industrials": "Industrials",
+    "real-estate": "Real Estate",
+    "technology": "Information Technology",
+    "utilities": "Utilities"
+}
+
 # Read the data
-df = pd.read_csv('industry_analysis.csv')
+df = pd.read_csv('sector_analysis.csv')
 
 # Remove rows where PE is null
 df = df.dropna(subset=['PE'])
@@ -39,7 +54,7 @@ app.layout = html.Div([
     
     html.Div([
         html.Label(
-            'Select Industry:',
+            'Select Sector:',
             style={
                 'fontSize': '1.2rem',
                 'marginRight': 15,
@@ -49,9 +64,9 @@ app.layout = html.Div([
             }
         ),
         dcc.Dropdown(
-            id='industry-dropdown',
-            options=[{'label': industry, 'value': industry} for industry in df['Industry'].unique()],
-            value=df['Industry'].iloc[0],
+            id='sector-dropdown',
+            options=[{'label': GICS_SECTOR_MAPPING[sector], 'value': sector} for sector in df['Sector'].unique()],
+            value=df['Sector'].iloc[0],
             style={
                 'width': '50%',
                 'fontFamily': 'Helvetica Neue, Arial, sans-serif',
@@ -82,11 +97,11 @@ app.layout = html.Div([
 
 @app.callback(
     Output('scatter-plot', 'figure'),
-    Input('industry-dropdown', 'value')
+    Input('sector-dropdown', 'value')
 )
-def update_graph(selected_industry):
-    # Filter data for selected industry
-    filtered_df = df[df['Industry'] == selected_industry]
+def update_graph(selected_sector):
+    # Filter data for selected sector
+    filtered_df = df[df['Sector'] == selected_sector]
     
     # Calculate line of best fit
     x = filtered_df['magic_score']
@@ -129,7 +144,7 @@ def update_graph(selected_industry):
     # Update layout
     fig.update_layout(
         title=dict(
-            text=f'P/E Ratio vs Magic Score for {selected_industry}',
+            text=f'P/E Ratio vs Magic Score for {GICS_SECTOR_MAPPING[selected_sector]}',
             font=dict(
                 family='Helvetica Neue, Arial, sans-serif',
                 size=24,
