@@ -36,12 +36,15 @@ jobs:
 
     - name: Build and push Docker image
       uses: docker/build-push-action@v5
+      env:
+        OWNER: ${{ github.repository_owner }}
+        REPO: ${{ github.event.repository.name }}
       with:
         context: .
         push: ${{ github.event_name != 'pull_request' }}
         tags: |
-          ghcr.io/${{ toLowerCase(github.repository_owner) }}/${{ toLowerCase(github.event.repository.name) }}:latest
-          ghcr.io/${{ toLowerCase(github.repository_owner) }}/${{ toLowerCase(github.event.repository.name) }}:${{ github.sha }}
+          ghcr.io/${OWNER,,}/${REPO,,}:latest
+          ghcr.io/${OWNER,,}/${REPO,,}:${{ github.sha }}
         platforms: linux/amd64,linux/arm64
         cache-from: type=local,src=/tmp/.buildx-cache
         cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
