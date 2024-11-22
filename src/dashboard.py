@@ -67,6 +67,7 @@ app.layout = html.Div([
             id='sector-dropdown',
             options=[{'label': GICS_SECTOR_MAPPING[sector], 'value': sector} for sector in df['Sector'].unique()],
             value=df['Sector'].iloc[0],
+            clearable=False,
             style={
                 'width': '50%',
                 'fontFamily': 'Helvetica Neue, Arial, sans-serif',
