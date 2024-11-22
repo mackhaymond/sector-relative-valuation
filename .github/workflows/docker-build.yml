@@ -34,17 +34,18 @@ jobs:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
 
+    - name: downcase REPO
+      run: |
+        echo "REPO=${GITHUB_REPOSITORY,,}" >>${GITHUB_ENV}
+
     - name: Build and push Docker image
       uses: docker/build-push-action@v5
-      env:
-        OWNER: ${{ github.repository_owner }}
-        REPO: ${{ github.event.repository.name }}
       with:
         context: .
         push: ${{ github.event_name != 'pull_request' }}
         tags: |
-          ghcr.io/${OWNER,,}/${REPO,,}:latest
-          ghcr.io/${OWNER,,}/${REPO,,}:${{ github.sha }}
+          ghcr.io/${{ env.REPO }}:latest
+          ghcr.io/${{ env.REPO }}:${{ github.sha }}
         platforms: linux/amd64,linux/arm64
         cache-from: type=local,src=/tmp/.buildx-cache
         cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
