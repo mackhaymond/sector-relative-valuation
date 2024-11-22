@@ -1,23 +1,26 @@
-# Use python:3.12-slim as the base image
 FROM python:3.12-slim
 
-# Install Poetry
-RUN apt-get update && apt-get install -y curl && \
-    curl -sSL https://install.python-poetry.org | python3 - && \
-    ln -s /root/.local/bin/poetry /usr/local/bin/poetry
-
-# Set the working directory
 WORKDIR /app
 
-# Copy the entire repository into the Docker image
-COPY . .
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
 
-# Install dependencies using Poetry
-RUN poetry config virtualenvs.create false && \
-    poetry install --no-interaction --no-ansi
+# Copy only the dependency files first
+COPY pyproject.toml poetry.lock ./
 
-# Expose port 8050
+# Install poetry and dependencies
+RUN pip install poetry && \
+    poetry config virtualenvs.create false && \
+    poetry install --no-dev --no-interaction --no-ansi
+
+# Copy the rest of the application
+COPY src/ ./src/
+COPY sector_analysis.csv ./
+
+# Expose the port the app runs on
 EXPOSE 8050
 
-# Set the default command to run the Dash app
-CMD ["poetry", "run", "python", "src/dashboard.py"]
+# Command to run the application
+CMD ["python", "src/dashboard.py"]
