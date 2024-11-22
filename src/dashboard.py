@@ -83,10 +83,48 @@ app.layout = html.Div([
     }),
     
     html.Div([
+        html.Label(
+            'Select Company:',
+            style={
+                'fontSize': '1.2rem',
+                'marginRight': 15,
+                'fontFamily': 'Helvetica Neue, Arial, sans-serif',
+                'color': COLORS['text'],
+                'fontWeight': '500'
+            }
+        ),
+        dcc.Dropdown(
+            id='company-dropdown',
+            options=[],
+            value=None,
+            clearable=False,
+            style={
+                'width': '50%',
+                'fontFamily': 'Helvetica Neue, Arial, sans-serif',
+                'fontSize': '1rem'
+            }
+        )
+    ], style={
+        'marginBottom': 30,
+        'padding': '20px',
+        'backgroundColor': 'white',
+        'borderRadius': '8px',
+        'boxShadow': '0 2px 4px rgba(0,0,0,0.1)'
+    }),
+    
+    html.Div([
         dcc.Graph(id='scatter-plot')
     ], style={
         'backgroundColor': 'white',
         'padding': '20px',
+        'borderRadius': '8px',
+        'boxShadow': '0 2px 4px rgba(0,0,0,0.1)'
+    }),
+    
+    html.Div(id='company-info', style={
+        'marginTop': 30,
+        'padding': '20px',
+        'backgroundColor': 'white',
         'borderRadius': '8px',
         'boxShadow': '0 2px 4px rgba(0,0,0,0.1)'
     })
@@ -97,10 +135,20 @@ app.layout = html.Div([
 })
 
 @app.callback(
-    Output('scatter-plot', 'figure'),
+    Output('company-dropdown', 'options'),
     Input('sector-dropdown', 'value')
 )
-def update_graph(selected_sector):
+def update_company_dropdown(selected_sector):
+    filtered_df = df[df['Sector'] == selected_sector]
+    return [{'label': row['Ticker'], 'value': row['Ticker']} for _, row in filtered_df.iterrows()]
+
+@app.callback(
+    Output('scatter-plot', 'figure'),
+    Output('company-info', 'children'),
+    Input('sector-dropdown', 'value'),
+    Input('company-dropdown', 'value')
+)
+def update_graph(selected_sector, selected_company):
     # Filter data for selected sector
     filtered_df = df[df['Sector'] == selected_sector]
     
@@ -141,6 +189,44 @@ def update_graph(selected_sector):
         name='Line of Best Fit',
         line=dict(color=COLORS['secondary'], dash='dash', width=2)
     ))
+    
+    # Highlight selected company's dot
+    if selected_company:
+        company_data = filtered_df[filtered_df['Ticker'] == selected_company].iloc[0]
+        fig.add_trace(go.Scatter(
+            x=[company_data['magic_score']],
+            y=[company_data['PE']],
+            mode='markers',
+            name='Selected Company',
+            marker=dict(
+                size=14,
+                color=COLORS['accent'],
+                line=dict(width=2, color='white'),
+                opacity=1.0
+            )
+        ))
+        
+        # Display company information
+        company_info = html.Div([
+            html.H3(f"Company: {company_data['Ticker']}"),
+            html.P(f"P/E Ratio: {company_data['PE']:.2f}"),
+            html.P(f"Magic Score: {company_data['magic_score']:.2f}"),
+            html.Div([
+                html.Label('P/E Ratio Difference:'),
+                dcc.Graph(
+                    figure=go.Figure(go.Bar(
+                        x=[company_data['PE'] - (fit[0] * company_data['magic_score'] + fit[1])],
+                        y=[''],
+                        orientation='h',
+                        marker=dict(
+                            color=COLORS['secondary'] if company_data['PE'] > (fit[0] * company_data['magic_score'] + fit[1]) else COLORS['accent']
+                        )
+                    ))
+                )
+            ], style={'marginTop': 20})
+        ])
+    else:
+        company_info = None
     
     # Update layout
     fig.update_layout(
@@ -199,7 +285,7 @@ def update_graph(selected_sector):
         zeroline=False
     )
     
-    return fig
+    return fig, company_info
 
 if __name__ == '__main__':
     app.run_server(debug=True)
