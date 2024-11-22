@@ -3,7 +3,8 @@ FROM python:3.12-slim
 
 # Install Poetry
 RUN apt-get update && apt-get install -y curl && \
-    curl -sSL https://install.python-poetry.org | python3 -
+    curl -sSL https://install.python-poetry.org | python3 - && \
+    ln -s /root/.local/bin/poetry /usr/local/bin/poetry
 
 # Set the working directory
 WORKDIR /app
@@ -12,7 +13,8 @@ WORKDIR /app
 COPY . .
 
 # Install dependencies using Poetry
-RUN poetry install
+RUN poetry config virtualenvs.create false && \
+    poetry install --no-interaction --no-ansi
 
 # Expose port 8050
 EXPOSE 8050
