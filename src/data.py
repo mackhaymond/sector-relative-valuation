@@ -189,22 +189,22 @@ async def process_data(df: pd.DataFrame, metrics: Dict[str, Dict[str, str]]) -> 
     for metric_group in ["x1_risk_metrics", "x2_growth_metrics", "x3_quality_metrics"]:
         for metric_name in metrics[metric_group].keys():
             if metric_name in df.columns:
-                df[f"{metric_name}_ZScore"] = zscore(df[metric_name].fillna(df[metric_name].mean()), 
+                df.loc[:, f"{metric_name}_ZScore"] = zscore(df[metric_name].fillna(df[metric_name].mean()), 
                                                    nan_policy='omit')
     
     # Calculate PE Z-score separately (our target variable)
     if "PE" in df.columns:
         # Remove companies with no P/E values
-        df = df.dropna(subset=["PE"])
+        df = df.dropna(subset=["PE"]).copy()  # Create explicit copy
         # Calculate z-score only for remaining companies
-        df["PE_ZScore"] = zscore(df["PE"], nan_policy='omit')
+        df.loc[:, "PE_ZScore"] = zscore(df["PE"], nan_policy='omit')
     
     # Calculate composite scores for each category
-    df["Risk_Score"] = df[[f"{metric}_ZScore" for metric in X1_RISK_METRICS.keys() 
+    df.loc[:, "Risk_Score"] = df[[f"{metric}_ZScore" for metric in X1_RISK_METRICS.keys() 
                           if f"{metric}_ZScore" in df.columns]].mean(axis=1)
-    df["Growth_Score"] = df[[f"{metric}_ZScore" for metric in X2_GROWTH_METRICS.keys() 
+    df.loc[:, "Growth_Score"] = df[[f"{metric}_ZScore" for metric in X2_GROWTH_METRICS.keys() 
                             if f"{metric}_ZScore" in df.columns]].mean(axis=1)
-    df["Quality_Score"] = df[[f"{metric}_ZScore" for metric in X3_QUALITY_METRICS.keys() 
+    df.loc[:, "Quality_Score"] = df[[f"{metric}_ZScore" for metric in X3_QUALITY_METRICS.keys() 
                              if f"{metric}_ZScore" in df.columns]].mean(axis=1)
     
     # Filter out data points with extreme z-scores (>3 standard deviations)
