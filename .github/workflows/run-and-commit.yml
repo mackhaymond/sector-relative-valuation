@@ -1,5 +1,5 @@
 ---
-name: Run and Commit
+name: Update data and build Docker image
 on:
   workflow_dispatch:
   schedule:
