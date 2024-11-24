@@ -72,10 +72,15 @@ STYLES = {
         'display': 'block'
     },
     'dropdown': {
-        'width': '100%',
-        'maxWidth': '500px',
+        'width': '300px',  # Fixed width instead of 100%
         'fontFamily': FONT_FAMILY,
         'fontSize': '14px'
+    },
+    'dropdown-container': {
+        'display': 'flex',
+        'justifyContent': 'center',
+        'gap': '24px',
+        'flexWrap': 'wrap'
     }
 }
 
@@ -84,25 +89,29 @@ app.layout = html.Div([
     html.H1('Stock Analysis Dashboard', style=STYLES['title']),
     
     html.Div([
-        html.Label('Select Sector:', style=STYLES['label']),
-        dcc.Dropdown(
-            id='sector-dropdown',
-            options=[{'label': GICS_SECTOR_MAPPING[sector], 'value': sector} for sector in df['Sector'].unique()],
-            value=df['Sector'].iloc[0],
-            clearable=False,
-            style=STYLES['dropdown']
-        )
-    ], style=STYLES['card']),
-    
-    html.Div([
-        html.Label('Select Company:', style=STYLES['label']),
-        dcc.Dropdown(
-            id='company-dropdown',
-            options=[],
-            value=None,
-            clearable=False,
-            style=STYLES['dropdown']
-        )
+        html.Div([
+            html.Div([
+                html.Label('Select Sector:', style=STYLES['label']),
+                dcc.Dropdown(
+                    id='sector-dropdown',
+                    options=[{'label': GICS_SECTOR_MAPPING[sector], 'value': sector} for sector in df['Sector'].unique()],
+                    value=df['Sector'].iloc[0],
+                    clearable=False,
+                    style=STYLES['dropdown']
+                )
+            ]),
+            
+            html.Div([
+                html.Label('Select Company:', style=STYLES['label']),
+                dcc.Dropdown(
+                    id='company-dropdown',
+                    options=[],
+                    value=None,
+                    clearable=False,
+                    style=STYLES['dropdown']
+                )
+            ]),
+        ], style=STYLES['dropdown-container']),
     ], style=STYLES['card']),
     
     html.Div([
