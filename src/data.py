@@ -179,7 +179,7 @@ async def process_sector_async(sector: str, metrics: Dict[str, Dict[str, str]]) 
         print(f"Error processing sector {sector}: {e}")
         return None
 
-async def process_data(df: pd.DataFrame, metrics: Dict[str, Dict[str, str]]) -> pd.DataFrame:
+async def process_data(df: pd.DataFrame, metrics: Dict[str, Dict[str, str]]) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Process the collected data by calculating z-scores and composite scores"""
     if df.empty:
         print("No data was collected successfully.")
@@ -219,19 +219,22 @@ async def process_data(df: pd.DataFrame, metrics: Dict[str, Dict[str, str]]) -> 
     if "PE" in df.columns:
         columns_to_keep.extend(["PE", "PE_ZScore"])
     
-    df = df[columns_to_keep]
+    simple_df = df[columns_to_keep]
     
-    return df
+    return df, simple_df
 
 async def analyze_sectors_async(sectors: List[str] = SECTORS) -> pd.DataFrame:
     """Analyze multiple sectors with controlled concurrency."""
     all_data = []
+    all_data_full = []
     
     for sector in tqdm(sectors, desc="Processing sectors"):
         await asyncio.sleep(INDUSTRY_DELAY)  # Rate limiting between sectors
-        sector_data = await process_sector_async(sector, METRICS)
+        full_data, sector_data = await process_sector_async(sector, METRICS)
         if sector_data is not None:
             all_data.append(sector_data)
+        if full_data is not None:
+            all_data_full.append(full_data)
     
     if not all_data:
         print("No data was collected successfully.")
@@ -239,9 +242,11 @@ async def analyze_sectors_async(sectors: List[str] = SECTORS) -> pd.DataFrame:
     
     # Combine all sector data
     combined_data = pd.concat(all_data, ignore_index=True)
+    combined_data_full = pd.concat(all_data_full, ignore_index=True)
     
     # Save to CSV
     combined_data.to_csv("sector_analysis.csv", index=False)
+    combined_data_full.to_csv("sector_analysis_full.csv", index=False)
     return combined_data
 
 if __name__ == "__main__":
