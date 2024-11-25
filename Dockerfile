@@ -1,23 +1,28 @@
+# Build stage
+FROM python:3.12-slim as builder
+
+WORKDIR /app
+
+# Install system dependencies and poetry, then cleanup in the same layer
+RUN apt-get update && apt-get install -y \
+    gcc \
+    && pip install poetry \
+    && poetry config virtualenvs.create false \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy dependency files and install dependencies
+COPY pyproject.toml poetry.lock ./
+RUN poetry install --no-dev --no-interaction --no-ansi
+
+# Final stage
 FROM python:3.12-slim
 
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    gcc \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy only the dependency files first
-COPY pyproject.toml poetry.lock ./
-
-# Install poetry and dependencies
-RUN pip install poetry && \
-    poetry config virtualenvs.create false && \
-    poetry install --no-dev --no-interaction --no-ansi
-
-# Copy the rest of the application
+# Copy only the installed packages and application files
+COPY --from=builder /usr/local/lib/python3.12/site-packages/ /usr/local/lib/python3.12/site-packages/
 COPY src/ ./src/
-COPY sector_analysis.csv ./
+COPY sector_analysis.csv sector_analysis_full.csv weights.csv ./
 
 # Expose the port the app runs on
 EXPOSE 8050
