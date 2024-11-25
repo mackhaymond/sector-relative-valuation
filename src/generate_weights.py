@@ -52,6 +52,11 @@ for sector in sector_weights:
 # Save the updated data
 data.to_csv('sector_analysis.csv', index=False)
 
+# Convert sector weights to DataFrame and save to CSV
+weights_df = pd.DataFrame.from_dict(sector_weights, orient='index')
+weights_df.index.name = 'Sector'
+weights_df.to_csv('weights.csv')
+
 # Print sector-specific weights for review
 print("\nSector-Specific Weights:")
 for sector, weights in sector_weights.items():
