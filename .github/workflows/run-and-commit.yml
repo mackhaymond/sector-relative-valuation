@@ -1,5 +1,5 @@
 ---
-name: Update data and build Docker image
+name: Update Sector Analysis Data
 on:
   workflow_dispatch:
   schedule:
