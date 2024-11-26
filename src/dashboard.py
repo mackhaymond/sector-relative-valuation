@@ -497,6 +497,18 @@ def analyze_individual_stock(n_clicks, ticker):
         # Get all metrics
         for metric_name, yf_metric in ALL_METRICS.items():
             stock_data[metric_name] = stock_info.get(yf_metric, np.nan)
+            
+        # Print which stats were found and which are NaN
+        print(f"\n=== Stats Analysis for {ticker} ===")
+        print("Found stats:")
+        found_stats = [f"{metric}: {stock_data[metric]}" for metric in stock_data if not pd.isna(stock_data[metric]) and metric != 'Ticker']
+        for stat in found_stats:
+            print(f"  {stat}")
+        print("\nMissing stats (NaN):")
+        missing_stats = [metric for metric in stock_data if pd.isna(stock_data[metric]) and metric != 'Ticker']
+        for stat in missing_stats:
+            print(f"  {stat}")
+        print("=" * 40 + "\n")
         
         # Get the stock's sector
         stock_sector = stock_info.get('sector', '').lower().replace(' ', '-')
