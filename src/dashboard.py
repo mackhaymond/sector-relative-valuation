@@ -519,42 +519,60 @@ def analyze_individual_stock(n_clicks, ticker):
         sector_stocks = sector_df[sector_df['Sector'] == stock_sector].copy()
         
         # Calculate z-scores for the individual stock using sector data
-        for metric_group, metrics in [
-            ('Risk_Score', X1_RISK_METRICS),
-            ('Growth_Score', X2_GROWTH_METRICS),
-            ('Quality_Score', X3_QUALITY_METRICS)
-        ]:
-            # Calculate z-scores for each metric in the group
+        category_stats = {
+            'Risk_Score': {'metrics': X1_RISK_METRICS, 'available': 0, 'total': len(X1_RISK_METRICS)},
+            'Growth_Score': {'metrics': X2_GROWTH_METRICS, 'available': 0, 'total': len(X2_GROWTH_METRICS)},
+            'Quality_Score': {'metrics': X3_QUALITY_METRICS, 'available': 0, 'total': len(X3_QUALITY_METRICS)}
+        }
+        
+        for metric_group, info in category_stats.items():
             metric_zscores = []
-            for metric in metrics:
-                if metric in stock_data:
+            for metric in info['metrics']:
+                if metric in stock_data and not pd.isna(stock_data[metric]):
                     sector_values = sector_stocks[metric].dropna()
-                    if not sector_values.empty:
+                    if not sector_values.empty and sector_values.std() != 0:
                         z = (stock_data[metric] - sector_values.mean()) / sector_values.std()
                         metric_zscores.append(z)
+                        info['available'] += 1
             
-            # Calculate composite score for the group
+            # Calculate composite score if we have at least one valid metric
             if metric_zscores:
                 stock_data[metric_group] = np.mean(metric_zscores)
             else:
                 stock_data[metric_group] = np.nan
+                print(f"Warning: No valid metrics found for {metric_group}")
         
         # Get weights for the sector
         sector_weights = weights_df[weights_df['Sector'] == stock_sector].iloc[0]
         
-        # Calculate magic score for the individual stock
-        magic_score = (
-            stock_data['Risk_Score'] * sector_weights['Risk_Score'] / 100 +
-            stock_data['Growth_Score'] * sector_weights['Growth_Score'] / 100 +
-            stock_data['Quality_Score'] * sector_weights['Quality_Score'] / 100
-        )
+        # Calculate magic score using only available category scores
+        available_scores = []
+        total_weight = 0
+        
+        for metric_group in ['Risk_Score', 'Growth_Score', 'Quality_Score']:
+            if not pd.isna(stock_data[metric_group]):
+                weight = sector_weights[metric_group] / 100
+                available_scores.append(stock_data[metric_group] * weight)
+                total_weight += weight
+        
+        # Normalize magic score based on available weights
+        if available_scores and total_weight > 0:
+            magic_score = sum(available_scores) * (1 / total_weight)
+        else:
+            raise ValueError("Unable to calculate magic score: no valid category scores available")
         
         # Calculate magic scores for sector stocks
-        sector_stocks['magic_score'] = (
-            sector_stocks['Risk_Score'] * sector_weights['Risk_Score'] / 100 +
-            sector_stocks['Growth_Score'] * sector_weights['Growth_Score'] / 100 +
-            sector_stocks['Quality_Score'] * sector_weights['Quality_Score'] / 100
-        )
+        def calculate_magic_score(row):
+            available_scores = []
+            total_weight = 0
+            for metric_group in ['Risk_Score', 'Growth_Score', 'Quality_Score']:
+                if not pd.isna(row[metric_group]):
+                    weight = sector_weights[metric_group] / 100
+                    available_scores.append(row[metric_group] * weight)
+                    total_weight += weight
+            return sum(available_scores) * (1 / total_weight) if available_scores and total_weight > 0 else np.nan
+
+        sector_stocks['magic_score'] = sector_stocks.apply(calculate_magic_score, axis=1)
         
         # Remove any rows with NaN magic scores
         sector_stocks = sector_stocks.dropna(subset=['magic_score', 'PE'])
