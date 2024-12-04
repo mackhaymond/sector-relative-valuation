@@ -481,7 +481,7 @@ def update_graph(selected_sector, selected_company):
     [Input('analyze-button', 'n_clicks')],
     [State('ticker-input', 'value')]
 )
-async def analyze_individual_stock(n_clicks, ticker):
+def analyze_individual_stock(n_clicks, ticker):
     if n_clicks is None or not ticker:
         return {}, {}, None, ''
     
