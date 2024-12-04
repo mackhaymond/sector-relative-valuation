@@ -11,10 +11,13 @@ from plotly.subplots import make_subplots
 # Import constants from data.py
 from data import (
     X1_RISK_METRICS,
-    X2_GROWTH_METRICS,
+    X2_MOMENTUM_METRICS,
     X3_QUALITY_METRICS,
     Y_VALUATION_METRIC,
-    ALL_METRICS
+    ALL_METRICS,
+    calculate_rsi,
+    calculate_return_sd,
+    analyze_sectors_async
 )
 
 # GICS Sector Mapping
@@ -478,7 +481,7 @@ def update_graph(selected_sector, selected_company):
     [Input('analyze-button', 'n_clicks')],
     [State('ticker-input', 'value')]
 )
-def analyze_individual_stock(n_clicks, ticker):
+async def analyze_individual_stock(n_clicks, ticker):
     if n_clicks is None or not ticker:
         return {}, {}, None, ''
     
@@ -491,12 +494,29 @@ def analyze_individual_stock(n_clicks, ticker):
         stock = yf.Ticker(ticker)
         stock_info = stock.info
         
+        # Get historical data for custom calculations
+        hist_data = stock.history(period="1y")
+        
         # Create DataFrame for the individual stock
         stock_data = {'Ticker': ticker}
         
         # Get all metrics
         for metric_name, yf_metric in ALL_METRICS.items():
-            stock_data[metric_name] = stock_info.get(yf_metric, np.nan)
+            if metric_name == "RSI":
+                # Calculate RSI
+                if not hist_data.empty:
+                    stock_data[metric_name] = calculate_rsi(hist_data['Close'])
+                else:
+                    stock_data[metric_name] = np.nan
+            elif metric_name == "ReturnSD":
+                # Calculate return SD
+                if not hist_data.empty:
+                    stock_data[metric_name] = calculate_return_sd(hist_data['Close'])
+                else:
+                    stock_data[metric_name] = np.nan
+            else:
+                # Get standard yfinance metrics
+                stock_data[metric_name] = stock_info.get(yf_metric, np.nan)
             
         # Print which stats were found and which are NaN
         print(f"\n=== Stats Analysis for {ticker} ===")
@@ -521,7 +541,7 @@ def analyze_individual_stock(n_clicks, ticker):
         # Calculate z-scores for the individual stock using sector data
         category_stats = {
             'Risk_Score': {'metrics': X1_RISK_METRICS, 'available': 0, 'total': len(X1_RISK_METRICS)},
-            'Growth_Score': {'metrics': X2_GROWTH_METRICS, 'available': 0, 'total': len(X2_GROWTH_METRICS)},
+            'Momentum_Score': {'metrics': X2_MOMENTUM_METRICS, 'available': 0, 'total': len(X2_MOMENTUM_METRICS)},
             'Quality_Score': {'metrics': X3_QUALITY_METRICS, 'available': 0, 'total': len(X3_QUALITY_METRICS)}
         }
         
@@ -549,7 +569,7 @@ def analyze_individual_stock(n_clicks, ticker):
         available_scores = []
         total_weight = 0
         
-        for metric_group in ['Risk_Score', 'Growth_Score', 'Quality_Score']:
+        for metric_group in ['Risk_Score', 'Momentum_Score', 'Quality_Score']:
             if not pd.isna(stock_data[metric_group]):
                 weight = sector_weights[metric_group] / 100
                 available_scores.append(stock_data[metric_group] * weight)
@@ -565,7 +585,7 @@ def analyze_individual_stock(n_clicks, ticker):
         def calculate_magic_score(row):
             available_scores = []
             total_weight = 0
-            for metric_group in ['Risk_Score', 'Growth_Score', 'Quality_Score']:
+            for metric_group in ['Risk_Score', 'Momentum_Score', 'Quality_Score']:
                 if not pd.isna(row[metric_group]):
                     weight = sector_weights[metric_group] / 100
                     available_scores.append(row[metric_group] * weight)
@@ -769,7 +789,7 @@ def analyze_individual_stock(n_clicks, ticker):
             ]),
             ('Category Scores', [
                 ("Risk Score", f"{stock_data['Risk_Score']:.2f}"),
-                ("Growth Score", f"{stock_data['Growth_Score']:.2f}"),
+                ("Momentum Score", f"{stock_data['Momentum_Score']:.2f}"),
                 ("Quality Score", f"{stock_data['Quality_Score']:.2f}"),
             ])
         ]

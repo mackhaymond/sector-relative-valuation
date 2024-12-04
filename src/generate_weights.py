@@ -16,7 +16,7 @@ for sector in data['Sector'].unique():
     sector_data = data[data['Sector'] == sector]
     
     # Define input (X) and target (y) variables for this sector
-    X = sector_data[['Risk_Score', 'Growth_Score', 'Quality_Score']]
+    X = sector_data[['Risk_Score', 'Momentum_Score', 'Quality_Score']]
     y = sector_data['PE_ZScore']
     
     # Standardize the input variables
@@ -34,7 +34,7 @@ for sector in data['Sector'].unique():
     # Store the weights for this sector
     sector_weights[sector] = {
         'Risk_Score': normalized_weights[0],
-        'Growth_Score': normalized_weights[1],
+        'Momentum_Score': normalized_weights[1],
         'Quality_Score': normalized_weights[2]
     }
 
@@ -45,7 +45,7 @@ for sector in sector_weights:
     
     data.loc[sector_mask, 'magic_score'] = (
         data.loc[sector_mask, 'Risk_Score'] * weights['Risk_Score'] +
-        data.loc[sector_mask, 'Growth_Score'] * weights['Growth_Score'] +
+        data.loc[sector_mask, 'Momentum_Score'] * weights['Momentum_Score'] +
         data.loc[sector_mask, 'Quality_Score'] * weights['Quality_Score']
     ) / 100  # Divide by 100 to convert percentage to decimal
 

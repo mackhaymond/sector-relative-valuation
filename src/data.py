@@ -32,16 +32,16 @@ SECTORS = [
 
 # Category 1: Risk Metrics - Measures of company's risk profile
 X1_RISK_METRICS = {
-    "Beta": "beta",                          # Market sensitivity
-    "Volatility": "regularMarketVolume",     # Trading volume volatility
-    "DebtToEquity": "debtToEquity"          # Leverage ratio
+    "Volatility": "regularMarketVolume",     # Stock volatility
+    "DebtToEquity": "debtToEquity",         # Leverage ratio
+    "ReturnSD": "returnSD"                   # Standard deviation of returns
 }
 
-# Category 2: Growth Metrics - Measures of company's growth potential
-X2_GROWTH_METRICS = {
-    "RevenueGrowth": "revenueGrowth",       # Top-line growth
-    "EarningsGrowth": "earningsGrowth",      # Bottom-line growth
-    "ProfitMargins": "profitMargins"         # Profitability
+# Category 2: Momentum Metrics - Measures of price momentum and growth
+X2_MOMENTUM_METRICS = {
+    "PriceChange12M": "52WeekChange",     # 12-month price change
+    "RSI": "rsi",                           # Relative Strength Index
+    "EarningsGrowth": "earningsGrowth"      # Earnings growth
 }
 
 # Category 3: Quality Metrics - Measures of company's operational efficiency
@@ -63,7 +63,7 @@ Y_VALUATION_METRIC = {
 # Combine all metrics for data collection
 ALL_METRICS = {
     **X1_RISK_METRICS,
-    **X2_GROWTH_METRICS,
+    **X2_MOMENTUM_METRICS,
     **X3_QUALITY_METRICS,
     **Y_VALUATION_METRIC
 }
@@ -71,7 +71,7 @@ ALL_METRICS = {
 # Create metrics dictionary for easy access
 METRICS = {
     "x1_risk_metrics": X1_RISK_METRICS,        # X1 variable
-    "x2_growth_metrics": X2_GROWTH_METRICS,    # X2 variable
+    "x2_momentum_metrics": X2_MOMENTUM_METRICS,    # X2 variable
     "x3_quality_metrics": X3_QUALITY_METRICS,  # X3 variable
     "y_valuation_metric": Y_VALUATION_METRIC,  # Y variable
     "all_metrics": ALL_METRICS
@@ -86,6 +86,41 @@ INDUSTRY_DELAY = 1.0  # seconds
 # CODE
 #######################
 
+def calculate_rsi(prices: pd.Series, periods: int = 14) -> float:
+    """Calculate the Relative Strength Index (RSI) for a given price series."""
+    # Calculate price differences
+    delta = prices.diff()
+    
+    # Separate gains and losses
+    gain = (delta.where(delta > 0, 0)).rolling(window=periods).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=periods).mean()
+    
+    # Calculate RS and RSI
+    rs = gain / loss
+    rsi = 100 - (100 / (1 + rs))
+    
+    return rsi.iloc[-1]
+
+def calculate_return_sd(prices: pd.Series, periods: int = 252) -> float:
+    """Calculate the standard deviation of returns over the specified period."""
+    # Calculate daily returns
+    returns = prices.pct_change()
+    
+    # Calculate the standard deviation of returns
+    return_sd = returns.std()
+    
+    return return_sd
+
+async def get_historical_data(ticker: str, period: str = "1y") -> pd.DataFrame:
+    """Get historical price data for a ticker."""
+    try:
+        stock = yf.Ticker(ticker)
+        hist = stock.history(period=period)
+        return hist
+    except Exception as e:
+        print(f"Error fetching historical data for {ticker}: {e}")
+        return pd.DataFrame()
+
 # Semaphore for limiting concurrent requests
 SEMAPHORE = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
 
@@ -95,8 +130,29 @@ async def get_metric_async(session: aiohttp.ClientSession, ticker: str, metric_n
         try:
             await asyncio.sleep(REQUEST_DELAY)  # Rate limiting
             stock = yf.Ticker(ticker)
+            
+            # Handle custom metrics that need calculation
+            if metric_name == "rsi":
+                hist = await get_historical_data(ticker)
+                if not hist.empty:
+                    rsi = calculate_rsi(hist['Close'])
+                    print(f"{metric_name}: {rsi}")
+                    return rsi
+                return float("nan")
+                
+            elif metric_name == "returnSD":
+                hist = await get_historical_data(ticker)
+                if not hist.empty:
+                    sd = calculate_return_sd(hist['Close'])
+                    print(f"{metric_name}: {sd}")
+                    return sd
+                return float("nan")
+                
+            # Handle standard yfinance metrics
             value = stock.info.get(metric_name)
+            print(f"{metric_name}: {value}")
             return value if value is not None else float("nan")
+            
         except Exception as e:
             print(f"Error fetching {metric_name} for {ticker}: {e}")
             return float("nan")
@@ -186,7 +242,7 @@ async def process_data(df: pd.DataFrame, metrics: Dict[str, Dict[str, str]]) -> 
         return None
     
     # Calculate z-scores for each metric group
-    for metric_group in ["x1_risk_metrics", "x2_growth_metrics", "x3_quality_metrics"]:
+    for metric_group in ["x1_risk_metrics", "x2_momentum_metrics", "x3_quality_metrics"]:
         for metric_name in metrics[metric_group].keys():
             if metric_name in df.columns:
                 df.loc[:, f"{metric_name}_ZScore"] = zscore(df[metric_name].fillna(df[metric_name].mean()), 
@@ -202,20 +258,20 @@ async def process_data(df: pd.DataFrame, metrics: Dict[str, Dict[str, str]]) -> 
     # Calculate composite scores for each category
     df.loc[:, "Risk_Score"] = df[[f"{metric}_ZScore" for metric in X1_RISK_METRICS.keys() 
                           if f"{metric}_ZScore" in df.columns]].mean(axis=1)
-    df.loc[:, "Growth_Score"] = df[[f"{metric}_ZScore" for metric in X2_GROWTH_METRICS.keys() 
+    df.loc[:, "Momentum_Score"] = df[[f"{metric}_ZScore" for metric in X2_MOMENTUM_METRICS.keys() 
                             if f"{metric}_ZScore" in df.columns]].mean(axis=1)
     df.loc[:, "Quality_Score"] = df[[f"{metric}_ZScore" for metric in X3_QUALITY_METRICS.keys() 
                              if f"{metric}_ZScore" in df.columns]].mean(axis=1)
     
     # Filter out data points with extreme z-scores (>3 standard deviations)
     mask = (abs(df["Risk_Score"]) <= 2.5) & \
-           (abs(df["Growth_Score"]) <= 2.5) & \
+           (abs(df["Momentum_Score"]) <= 2.5) & \
            (abs(df["Quality_Score"]) <= 2.5) & \
            (abs(df["PE_ZScore"]) <= 2.5)  
     df = df[mask]
     
     # Keep only essential columns
-    columns_to_keep = ["Sector", "Ticker", "Risk_Score", "Growth_Score", "Quality_Score"]
+    columns_to_keep = ["Sector", "Ticker", "Risk_Score", "Momentum_Score", "Quality_Score"]
     if "PE" in df.columns:
         columns_to_keep.extend(["PE", "PE_ZScore"])
     
