@@ -246,6 +246,10 @@ def update_graph(selected_sector, selected_company):
     filtered_df.loc[:, 'predicted_pe'] = fit[0] * filtered_df['magic_score'] + fit[1]
     filtered_df.loc[:, 'pe_deviation'] = filtered_df['PE'] - filtered_df['predicted_pe']
     
+    # Calculate R-squared
+    y_pred = fit[0] * x + fit[1]
+    r_squared = np.corrcoef(x, y)[0, 1]**2
+    
     # Find maximum deviation in sector for bar chart range
     max_deviation = abs(filtered_df['pe_deviation']).max()
     deviation_range = [-max_deviation, max_deviation]
@@ -286,6 +290,23 @@ def update_graph(selected_sector, selected_company):
         name='Line of Best Fit',
         line=dict(color=COLORS['secondary'], dash='dash', width=2)
     ))
+    
+    # Add equation and R² annotation
+    equation = f'y = {fit[0]:.2f}x + {fit[1]:.2f}'
+    r2_text = f'R² = {r_squared:.3f}'
+    fig.add_annotation(
+        x=0.02,
+        y=0.98,
+        xref='paper',
+        yref='paper',
+        text=f'{equation}<br>{r2_text}',
+        showarrow=False,
+        font=dict(family=FONT_FAMILY, size=12),
+        bgcolor='rgba(255,255,255,0.8)',
+        bordercolor=COLORS['border'],
+        borderwidth=1,
+        align='left'
+    )
     
     # Highlight selected company
     if selected_company:
@@ -609,10 +630,31 @@ def analyze_individual_stock(n_clicks, ticker):
         line_x = np.array([x.min(), x.max()])
         line_y = fit[0] * line_x + fit[1]
         
+        # Calculate R-squared
+        y_pred = fit[0] * x + fit[1]
+        r_squared = np.corrcoef(x, y)[0, 1]**2
+        
         # Calculate predicted PE
         predicted_pe = fit[0] * magic_score + fit[1]
         actual_pe = stock_data.get('PE', np.nan)
         pe_deviation = actual_pe - predicted_pe
+        
+        # Add equation and R² annotation
+        equation = f'y = {fit[0]:.2f}x + {fit[1]:.2f}'
+        r2_text = f'R² = {r_squared:.3f}'
+        fig.add_annotation(
+            x=0.02,
+            y=0.98,
+            xref='paper',
+            yref='paper',
+            text=f'{equation}<br>{r2_text}',
+            showarrow=False,
+            font=dict(family=FONT_FAMILY, size=12),
+            bgcolor='rgba(255,255,255,0.8)',
+            bordercolor=COLORS['border'],
+            borderwidth=1,
+            align='left'
+        )
         
         # Add sector scatter points
         fig.add_trace(go.Scatter(
