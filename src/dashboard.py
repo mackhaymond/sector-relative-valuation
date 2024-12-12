@@ -270,7 +270,7 @@ def update_graph(selected_sector, selected_company):
         mode='markers',
         name='Stocks',
         text=filtered_df.apply(
-            lambda row: f"Ticker: {row['Ticker']}<br>P/E: {row['PE']:.2f}<br>Magic Score: {row['magic_score']:.2f}",
+            lambda row: f"Ticker: {row['Ticker']}<br>P/E: {row['PE']:.2f}<br>Fundamental Z-score: {row['magic_score']:.2f}",
             axis=1
         ),
         hoverinfo='text',
@@ -309,7 +309,7 @@ def update_graph(selected_sector, selected_company):
     )
     
     # Highlight selected company
-    if selected_company:
+    if (selected_company):
         company_data = filtered_df[filtered_df['Ticker'] == selected_company].iloc[0]
         fig.add_trace(go.Scatter(
             x=[company_data['magic_score']],
@@ -426,7 +426,7 @@ def update_graph(selected_sector, selected_company):
                     'color': COLORS['text'],
                     'marginBottom': '8px'
                 }),
-                html.P(f"Magic Score: {company_data['magic_score']:.2f}", style={
+                html.P(f"Fundamental Z-score: {company_data['magic_score']:.2f}", style={
                     'fontFamily': FONT_FAMILY,
                     'fontSize': '16px',
                     'color': COLORS['text'],
@@ -444,7 +444,7 @@ def update_graph(selected_sector, selected_company):
     # Update layout
     fig.update_layout(
         title=dict(
-            text=f'Magic Formula Score vs P/E Ratio - {GICS_SECTOR_MAPPING[selected_sector]}',
+            text=f'Fundamental Z-score vs P/E Ratio - {GICS_SECTOR_MAPPING[selected_sector]}',
             font=dict(
                 family=FONT_FAMILY,
                 size=24,
@@ -454,7 +454,7 @@ def update_graph(selected_sector, selected_company):
             xanchor='center'
         ),
         xaxis=dict(
-            title={'text': 'Magic Formula Score', 'font': {'family': FONT_FAMILY}},
+            title={'text': 'Fundamental Z-score', 'font': {'family': FONT_FAMILY}},
             showgrid=True,
             gridcolor=COLORS['light_gray'],
             gridwidth=1,
@@ -663,7 +663,7 @@ def analyze_individual_stock(n_clicks, ticker):
             mode='markers',
             name='Sector Stocks',
             text=sector_stocks['Ticker'],
-            hovertemplate='%{text}<br>Magic Score: %{x:.2f}<br>P/E: %{y:.2f}',
+            hovertemplate='%{text}<br>Fundamental Z-score: %{x:.2f}<br>P/E: %{y:.2f}',
             marker=dict(
                 size=10,
                 color=COLORS['primary'],
@@ -687,7 +687,7 @@ def analyze_individual_stock(n_clicks, ticker):
             mode='markers',
             name=ticker,
             text=[ticker],
-            hovertemplate='%{text}<br>Magic Score: %{x:.2f}<br>P/E: %{y:.2f}',
+            hovertemplate='%{text}<br>Fundamental Z-score: %{x:.2f}<br>P/E: %{y:.2f}',
             marker=dict(
                 size=15,
                 color=COLORS['accent'],
@@ -702,7 +702,7 @@ def analyze_individual_stock(n_clicks, ticker):
                 'font': {'family': FONT_FAMILY, 'size': 24}
             },
             xaxis=dict(
-                title={'text': 'Magic Score', 'font': {'family': FONT_FAMILY}},
+                title={'text': 'Fundamental Z-score', 'font': {'family': FONT_FAMILY}},
                 showgrid=True,
                 gridcolor=COLORS['light_gray'],
                 gridwidth=1,
@@ -822,7 +822,7 @@ def analyze_individual_stock(n_clicks, ticker):
         info_sections = [
             ('Company Information', [
                 (f"Sector", f"{GICS_SECTOR_MAPPING.get(stock_sector, stock_sector)}"),
-                ("Magic Score", f"{magic_score:.2f}"),
+                ("Fundamental Z-score", f"{magic_score:.2f}"),
             ]),
             ('P/E Analysis', [
                 ("Actual P/E", f"{actual_pe:.2f}"),
