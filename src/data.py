@@ -32,7 +32,7 @@ SECTORS = [
 
 # Category 1: Risk Metrics - Measures of company's risk profile
 X1_RISK_METRICS = {
-    "Volatility": "regularMarketVolume",     # Stock volatility
+    "MaxDrawdown": "maxDrawdown",           # Maximum drawdown over last year
     "DebtToEquity": "debtToEquity",         # Leverage ratio
     "ReturnSD": "returnSD"                   # Standard deviation of returns
 }
@@ -86,7 +86,7 @@ INDUSTRY_DELAY = 1.0  # seconds
 # CODE
 #######################
 
-def calculate_rsi(prices: pd.Series, periods: int = 14) -> float:
+def calculate_rsi(prices: pd.Series, periods: int = 30) -> float:
     """Calculate the Relative Strength Index (RSI) for a given price series."""
     # Calculate price differences
     delta = prices.diff()
@@ -110,6 +110,19 @@ def calculate_return_sd(prices: pd.Series, periods: int = 252) -> float:
     return_sd = returns.std()
     
     return return_sd
+
+def calculate_max_drawdown(prices: pd.Series) -> float:
+    """Calculate the maximum drawdown over the given price series."""
+    # Calculate cumulative peak
+    rolling_max = prices.expanding().max()
+    
+    # Calculate drawdown
+    drawdown = (prices - rolling_max) / rolling_max
+    
+    # Get the maximum drawdown
+    max_drawdown = drawdown.min()
+    
+    return abs(max_drawdown)  # Return as a positive number
 
 async def get_historical_data(ticker: str, period: str = "1y") -> pd.DataFrame:
     """Get historical price data for a ticker."""
@@ -146,6 +159,14 @@ async def get_metric_async(session: aiohttp.ClientSession, ticker: str, metric_n
                     sd = calculate_return_sd(hist['Close'])
                     print(f"{metric_name}: {sd}")
                     return sd
+                return float("nan")
+                
+            elif metric_name == "maxDrawdown":
+                hist = await get_historical_data(ticker)
+                if not hist.empty:
+                    max_drawdown = calculate_max_drawdown(hist['Close'])
+                    print(f"{metric_name}: {max_drawdown}")
+                    return max_drawdown
                 return float("nan")
                 
             # Handle standard yfinance metrics
