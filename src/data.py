@@ -53,7 +53,7 @@ X3_QUALITY_METRICS = {
 
 # Dependent Variable (Y) for Regression
 Y_VALUATION_METRIC = {
-    "PE": "forwardPE"  # Forward P/E ratio as valuation metric
+    "PE": "trailingPE"  # Trailing P/E ratio as valuation metric
     # Can be modified to use different valuation metrics:
     # "PB": "priceToBook"
     # "PS": "priceToSales"
