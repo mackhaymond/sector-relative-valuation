@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y \
 
 # Copy dependency files and install dependencies
 COPY pyproject.toml poetry.lock ./
-RUN poetry install --no-interaction --no-ansi
+RUN poetry install --no-root --no-interaction --no-ansi
 
 # Final stage
 FROM python:3.12-slim
