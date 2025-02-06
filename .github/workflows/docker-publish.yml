@@ -40,3 +40,8 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+      - name: Trigger Coolify Deployment
+        run: |
+            curl -X POST "http://coolify.mackhaymond.co/api/v1/deploy?uuid=aocg4oosgogkgk008okcccsg&force=false" \
+                 -H "Authorization: Bearer ${{ secrets.DEPLOY_TOKEN }}" \
+                 -H "Content-Type: application/json"
