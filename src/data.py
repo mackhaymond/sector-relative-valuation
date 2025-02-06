@@ -222,13 +222,7 @@ async def get_sector_companies(sector: str) -> List[str]:
     try:
         # Use yfinance to get sector companies
         sector_obj = yf.Sector(sector)
-        companies = list(sector_obj.top_companies.index)
-        
-        # Manually add MTNOY to communications sector
-        if sector == "communication-services":
-            companies.append("MTNOY")
-            
-        return companies
+        return list(sector_obj.top_companies.index)
     except Exception as e:
         print(f"Error getting companies for sector {sector}: {e}")
         return []
