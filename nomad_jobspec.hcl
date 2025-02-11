@@ -12,7 +12,8 @@ job "quantsystem" {
       driver = "docker"
 
       config {
-        image = "https://ghcr.io/spyicydev/quantsystem:latest"
+        # The IMAGE_TAG environment variable will be interpolated at runtime.
+        image = "ghcr.io/spyicydev/quantsystem:${IMAGE_TAG}"
         ports = ["dashboard_port"]
       }
 
