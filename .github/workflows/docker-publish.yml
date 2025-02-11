@@ -40,43 +40,10 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-      - name: Setup Nginx Reverse Proxy
-        run: |
-          # Create an Nginx config template with quotes for the environment variables
-          cat <<'EOF' > nginx.conf.template
-          events {}
-          http {
-            server {
-              listen 80;
-              location / {
-                proxy_pass https://nomad.mackhaymond.co;
-                proxy_set_header Host nomad.mackhaymond.co;
-                proxy_set_header CF-Access-Client-Id "${{ secrets.CLOUDFLARE_AUTH_CLIENT_ID }}";
-                proxy_set_header CF-Access-Client-Secret "${{ secrets.CLOUDFLARE_AUTH_CLIENT_SECRET }}";
-                proxy_ssl_server_name on;
-                proxy_ssl_verify off;
-              }
-            }
-          }
-          EOF
-
-          # Substitute environment variables into the config template
-          envsubst < nginx.conf.template > nginx.conf
-
-          # Optionally, output the config for debugging (remove or mask secrets if necessary)
-          cat nginx.conf
-
-          # Start the Nginx proxy container (container port 80 is mapped to host port 8080)
-          docker run -d --rm --name nginx-proxy -p 8080:80 \
-            -v "$(pwd)/nginx.conf:/etc/nginx/nginx.conf:ro" \
-            nginx:stable
-      - name: Setup `nomad`
-        uses: hashicorp/setup-nomad@main
-        id: setup
+      - name: Push to Nomad
+        uses: spyicydev/nomad-job-runner-action@v1.0.0
         with:
-          version: latest
-      - name: Run Nomad Job
-        run: |-
-          nomad job run nomad_jobspec.hcl
-        env:
-          NOMAD_ADDR: http://127.0.0.1:8080
+          job_spec_file: nomad_jobspec.hcl
+          cloudflare_client_id: ${{ secrets.CLOUDFLARE_AUTH_CLIENT_ID }}
+          cloudflare_client_secret: ${{ secrets.CLOUDFLARE_AUTH_CLIENT_SECRET }}
+          nomad_proxy_pass: "https://nomad.mackhaymond.co"
