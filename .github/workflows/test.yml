@@ -17,14 +17,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up environment variables for Cloudflare authentication
-        run: |
-          echo "CURL_OPTS=-H \"CF-Access-Client-Id: ${{ secrets.CLOUDFLARE_AUTH_CLIENT_ID }}\" -H \"CF-Access-Client-Secret: ${{ secrets.CLOUDFLARE_AUTH_CLIENT_SECRET }}\"" >> $GITHUB_ENV
-
       - name: Test requests
         run: |
-          curl -v $CURL_OPTS https://www.cloudflare.com/cdn-cgi/trace/
-          curl --location -v $CURL_OPTS https://nomad.mackhaymond.co
+          curl --location -H "CF-Access-Client-Id: ${{ secrets.CLOUDFLARE_AUTH_CLIENT_ID }}" -H "CF-Access-Client-Secret: ${{ secrets.CLOUDFLARE_AUTH_CLIENT_SECRET }}" https://nomad.mackhaymond.co
 
       - name: Setup `nomad`
         uses: hashicorp/setup-nomad@main
@@ -35,6 +30,3 @@ jobs:
       - name: Run Nomad Job
         run: |
           NOMAD_ADDR=https://nomad.mackhaymond.co nomad job run nomad_jobspec.hcl
-        env:
-          NOMAD_ADDR: https://nomad.mackhaymond.co
-          NOMAD_CURL_OPTS: "-H \"CF-Access-Client-Id: ${{ secrets.CLOUDFLARE_AUTH_CLIENT_ID }}\" -H \"CF-Access-Client-Secret: ${{ secrets.CLOUDFLARE_AUTH_CLIENT_SECRET }}\""
