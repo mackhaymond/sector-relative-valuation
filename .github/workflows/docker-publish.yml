@@ -46,4 +46,4 @@ jobs:
           job_spec_file: nomad_jobspec.hcl
           cloudflare_client_id: ${{ secrets.CLOUDFLARE_AUTH_CLIENT_ID }}
           cloudflare_client_secret: ${{ secrets.CLOUDFLARE_AUTH_CLIENT_SECRET }}
-          nomad_proxy_pass: "https://nomad.mackhaymond.co"
+          nomad_proxy_pass: https://nomad.mackhaymond.co
