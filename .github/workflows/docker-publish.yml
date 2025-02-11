@@ -23,13 +23,6 @@ jobs:
         with:
           version: "latest"
 
-      - name: Log in to the Container registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Initialize Packer
         run: packer init .
 
@@ -47,6 +40,8 @@ jobs:
         run: |
           packer build \
             -var "image_tag=sha-${{ github.sha }}" \
+            -var "registry_username=${{ github.actor }}"
+            -var "registry_password=${{ secrets.GITHUB_TOKEN }}"
             .
 
       - name: Deploy to Nomad

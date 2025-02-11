@@ -11,6 +11,16 @@ variable "image_tag" {
   type = string
 }
 
+variable "registry_username" {
+  type = string
+  sensitive = true
+}
+
+variable "registry_password" {
+  type = string
+  sensitive = true
+}
+
 source "docker" "quantsystem" {
   image  = "python:3.12-slim"
   commit = true
@@ -37,7 +47,7 @@ build {
       "pip install poetry",
       "cd /app",
       "poetry config virtualenvs.create false",
-      "poetry install --no-root --no-interaction --no-ansi",
+      "poetry install --no-root --no-interaction --no-ansi --only dashboard",
       "apt-get remove -y gcc g++ make",
       "apt-get autoremove -y",
       "apt-get clean",
@@ -51,6 +61,10 @@ build {
       tags       = [var.image_tag, "latest"]
     }
 
-    post-processor "docker-push" {}
+    post-processor "docker-push" {
+      login = true
+      login_username = var.registry_username
+      login_password = var.registry_password
+    }
   }
 }
