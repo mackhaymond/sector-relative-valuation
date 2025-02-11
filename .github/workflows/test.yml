@@ -46,7 +46,7 @@ jobs:
           cat nginx.conf
 
           # Start the Nginx proxy container with port mapping (container port 80 -> host port 8080)
-          docker run -d --rm --name nginx-proxy -p 8080:80 \
+          docker run -d --name nginx-proxy -p 8080:80 \
             -e CLIENT_ID="${{ secrets.CLOUDFLARE_AUTH_CLIENT_ID }}" \
             -e CLIENT_SECRET="${{ secrets.CLOUDFLARE_AUTH_CLIENT_SECRET }}" \
             -v "$(pwd)/nginx.conf:/etc/nginx/nginx.conf:ro" \
