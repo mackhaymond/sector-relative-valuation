@@ -18,11 +18,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
       - name: Setup Cloudflare Warp
-        uses: oHTGo/setup-cloudflare-warp-action@master
+        uses: Boostport/setup-cloudflare-warp@v1
         with:
           organization: spyicydev
-          auth-client-id: ${{ secrets.CLOUDFLARE_AUTH_CLIENT_ID }}
-          auth-client-secret: ${{ secrets.CLOUDFLARE_AUTH_CLIENT_SECRET }}
+          auth_client_id: ${{ secrets.CLOUDFLARE_AUTH_CLIENT_ID }}
+          auth_client_secret: ${{ secrets.CLOUDFLARE_AUTH_CLIENT_SECRET }}
+          configure_docker_dns: true
       - name: test it
         run: |
           curl https://www.cloudflare.com/cdn-cgi/trace/
