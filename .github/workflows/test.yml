@@ -41,7 +41,7 @@ jobs:
 
       - name: Test requests with proxy
         run: |
-          curl -v https://www.cloudflare.com/cdn-cgi/trace/
+          # curl -v https://www.cloudflare.com/cdn-cgi/trace/
           curl --location -v https://nomad.mackhaymond.co
 
       - name: Setup `nomad`
