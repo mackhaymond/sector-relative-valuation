@@ -1,4 +1,3 @@
-
 ---
 name: test connect
 on:
@@ -17,27 +16,40 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      - name: Setup Wireguard
+
+      - name: Install mitmproxy
+        run: pip install mitmproxy
+
+      - name: Create mitmproxy script
         run: |
-          sudo modprobe wireguard 
-          lsmod | grep wireguard # Check if loaded
-          sudo apt install wireguard-tools
-      - name: Setup Cloudflare Warp
-        uses: Boostport/setup-cloudflare-warp@v1
-        with:
-          organization: spyicydev
-          auth_client_id: ${{ secrets.CLOUDFLARE_AUTH_CLIENT_ID }}
-          auth_client_secret: ${{ secrets.CLOUDFLARE_AUTH_CLIENT_SECRET }}
-          configure_docker_dns: true
-      - name: test it
+          cat <<EOF > inject_headers.py
+          from mitmproxy import http
+
+          def request(flow: http.HTTPFlow) -> None:
+              if "nomad.mackhaymond.co" in flow.request.pretty_url:
+                  flow.request.headers["CF-Access-Client-Id"] = "${{ secrets.CLOUDFLARE_AUTH_CLIENT_ID }}"
+                  flow.request.headers["CF-Access-Client-Secret"] = "${{ secrets.CLOUDFLARE_AUTH_CLIENT_SECRET }}"
+          EOF
+
+      - name: Start mitmproxy
+        run: mitmdump -s inject_headers.py --mode transparent --listen-port 8080 &
+
+      - name: Set Proxy Environment Variables
         run: |
-          curl https://www.cloudflare.com/cdn-cgi/trace/
+          echo "http_proxy=http://localhost:8080" >> $GITHUB_ENV
+          echo "https_proxy=http://localhost:8080" >> $GITHUB_ENV
+
+      - name: Test requests with proxy
+        run: |
+          curl -v https://www.cloudflare.com/cdn-cgi/trace/
           curl --location -v https://nomad.mackhaymond.co
+
       - name: Setup `nomad`
         uses: hashicorp/setup-nomad@main
         id: setup
         with:
           version: latest
+
       - name: Run Nomad Job
         run: |
           NOMAD_ADDR=https://nomad.mackhaymond.co nomad job run nomad_jobspec.hcl
