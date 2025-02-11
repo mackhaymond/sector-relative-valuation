@@ -21,6 +21,13 @@ plotly = "^5.24.1"
 dash = "^2.18.2"
 tqdm = "^4.67.0"
 
+[tool.poetry.group.dashboard.dependencies]
+pandas = "^2.2.3"
+plotly = "^5.24.1"
+dash = "^2.18.2"
+yfinance = "^0.2.49"
+scipy = "^1.14.1"
+numpy = "^2.1.3"
 
 [tool.poetry.group.dev.dependencies]
 basedpyright = "^1.21.1"
