@@ -54,6 +54,4 @@ jobs:
           version: latest
       - name: Run Nomad Job
         run: |
-          nomad job run nomad_jobspec.hcl
-        env:
-          NOMAD_ADDR: https://nomad.mackhaymond.co
+          NOMAD_ADDR=https://nomad.mackhaymond.co nomad job run nomad_jobspec.hcl
