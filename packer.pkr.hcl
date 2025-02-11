@@ -49,7 +49,7 @@ build {
       "pip install poetry",
       "cd /app",
       "poetry config virtualenvs.create false",
-      "poetry install --no-dev",
+      "poetry install --no-root --no-interaction --no-ansi",
       "apt-get remove -y gcc g++ make",
       "apt-get autoremove -y",
       "apt-get clean",
