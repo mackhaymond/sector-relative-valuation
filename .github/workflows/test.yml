@@ -1,8 +1,5 @@
 name: test connect
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
 
 jobs:
@@ -11,13 +8,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Test requests
-        run: |
-          curl --location \
-            -H "CF-Access-Client-Id: ${{ secrets.CLOUDFLARE_AUTH_CLIENT_ID }}" \
-            -H "CF-Access-Client-Secret: ${{ secrets.CLOUDFLARE_AUTH_CLIENT_SECRET }}" \
-            https://nomad.mackhaymond.co
 
       - name: Setup Nginx Reverse Proxy
         run: |
