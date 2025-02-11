@@ -1,26 +1,25 @@
 job "quantsystem" {
-  datacenters = ["dc1"]
-
   group "dashboard" {
     network {
-      port "dashboard_port" {}
+      port "dashboard_port" {
+        to = 8050
+      }
     }
     
     task "dashboard" {
       driver = "docker"
 
       config {
-        image = "ghcr.io/SpyicyDev/QuantSystem:latest"
-      }
-
-      env {
-        PORT = "8050"
-        # Add other necessary environment variables here
+        image = "https://ghcr.io/spyicydev/quantsystem:latest"
+        ports = ["dashboard_port"]
       }
 
       service {
-        name = "quantsystem-dashboard"
+        name = "wwm"
         port = "dashboard_port"
+        tags = [
+          "traefik.enable=true",
+        ]
 
         check {
           name     = "dashboard-check"
