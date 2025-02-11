@@ -46,10 +46,11 @@ jobs:
           organization: spyicydev
           auth_client_id: ${{ secrets.CLOUDFLARE_AUTH_CLIENT_ID }}
           auth_client_secret: ${{ secrets.CLOUDFLARE_AUTH_CLIENT_SECRET }}
-      - name: Setup Nomad
-        uses: hashicorp/setup-nomad@v1
+      - name: Setup `nomad`
+        uses: hashicorp/setup-nomad@main
+        id: setup
         with:
-          nomad-version: '1.1.6'
+          version: latest
       - name: Run Nomad Job
         run: |
           nomad job run nomad_jobspec.hcl
