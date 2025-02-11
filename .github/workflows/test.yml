@@ -17,6 +17,11 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+      - name: Setup Wireguard
+        run: |
+          sudo modprobe wireguard 
+          lsmod | grep wireguard # Check if loaded
+          sudo apt install wireguard-tools
       - name: Setup Cloudflare Warp
         uses: Boostport/setup-cloudflare-warp@v1
         with:
