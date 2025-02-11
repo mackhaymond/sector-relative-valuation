@@ -40,6 +40,19 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+      - name: Setup Cloudflare Warp
+        uses: Boostport/setup-cloudflare-warp@v1
+        with:
+          warp-plus-code: ${{ secrets.WARP_PLUS_CODE }}
+      - name: Setup Nomad
+        uses: hashicorp/setup-nomad@v1
+        with:
+          nomad-version: '1.1.6'
+      - name: Run Nomad Job
+        run: |
+          nomad job run nomad_jobspec.hcl
+        env:
+          NOMAD_ADDR: https://nomad.mackhaymond.co
       - name: Trigger Coolify Deployment
         run: |
             curl -X POST "http://coolify.mackhaymond.co/api/v1/deploy?uuid=g4wc4cgw084008cw4cosgkwg&force=false" \
