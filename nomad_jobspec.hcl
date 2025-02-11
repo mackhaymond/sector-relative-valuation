@@ -1,3 +1,8 @@
+variable "image_tag" {
+  type = "string"
+  description = "The docker image tag of the current deployment."
+}
+
 job "quantsystem" {
   group "dashboard" {
     count = 3
@@ -13,7 +18,7 @@ job "quantsystem" {
 
       config {
         # The IMAGE_TAG environment variable will be interpolated at runtime.
-        image = "ghcr.io/spyicydev/quantsystem:${IMAGE_TAG}"
+        image = "ghcr.io/spyicydev/quantsystem:${var.image_tag}"
         ports = ["dashboard_port"]
       }
 
