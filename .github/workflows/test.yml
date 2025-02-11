@@ -21,7 +21,7 @@ jobs:
 
       - name: Setup Nginx Reverse Proxy
         run: |
-          # Create an Nginx config template (using placeholder variables)
+          # Create an Nginx config template
           cat <<'EOF' > nginx.conf.template
           events {}
           http {
@@ -39,10 +39,13 @@ jobs:
           }
           EOF
 
-          # Replace placeholders with environment variable values
+          # Substitute environment variables in the config template
           envsubst < nginx.conf.template > nginx.conf
 
-          # Start the Nginx container with port mapping (80 in container -> 8080 on host)
+          # Optionally, output the config for debugging (remove if exposing secrets)
+          cat nginx.conf
+
+          # Start the Nginx proxy container with port mapping (container port 80 -> host port 8080)
           docker run -d --rm --name nginx-proxy -p 8080:80 \
             -e CLIENT_ID="${{ secrets.CLOUDFLARE_AUTH_CLIENT_ID }}" \
             -e CLIENT_SECRET="${{ secrets.CLOUDFLARE_AUTH_CLIENT_SECRET }}" \
@@ -50,7 +53,13 @@ jobs:
             nginx:stable
 
       - name: Wait for proxy to start
-        run: sleep 5
+        run: sleep 10
+
+      - name: List Docker Containers
+        run: docker ps -a
+
+      - name: Show Nginx Proxy Logs
+        run: docker logs nginx-proxy
 
       - name: Test the Proxy Endpoint
         run: curl -v http://127.0.0.1:8080
@@ -62,7 +71,7 @@ jobs:
 
       - name: Run Nomad Job
         env:
-          # Use the IPv4 loopback address explicitly
+          # Use the IPv4 address explicitly
           NOMAD_ADDR: http://127.0.0.1:8080
         run: |
           nomad job run nomad_jobspec.hcl
