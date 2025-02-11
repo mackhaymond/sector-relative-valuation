@@ -46,7 +46,7 @@ jobs:
       - name: Push to Nomad
         uses: SpyicyDev/nomad-job-runner-action@v1.0.0
         env:
-          NOMAD_VAR_image_tag: ${{ github.sha }}
+          NOMAD_VAR_image_tag: sha-${{ github.sha }}
         with:
           job_spec_file: nomad_jobspec.hcl
           cloudflare_client_id: ${{ secrets.CLOUDFLARE_AUTH_CLIENT_ID }}
