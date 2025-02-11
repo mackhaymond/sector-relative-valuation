@@ -1,4 +1,4 @@
-name: Build and Push Docker Image
+name: Build and Push Docker Image with Packer
 on:
   workflow_dispatch:
   push:
@@ -18,12 +18,20 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Setup Packer
+        uses: hashicorp/setup-packer@main
+        with:
+          version: "latest"
+
       - name: Log in to the Container registry
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Initialize Packer
+        run: packer init .
 
       - name: Extract metadata (tags, labels) for Docker
         id: meta
@@ -35,13 +43,14 @@ jobs:
             type=ref,event=branch
             latest
 
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+      - name: Build with Packer
+        run: |
+          packer build \
+            -var "registry=${{ env.REGISTRY }}" \
+            -var "image_name=${{ env.IMAGE_NAME }}" \
+            -var "image_tag=sha-${{ github.sha }}" \
+            -var "latest_tag=latest" \
+            .
 
       - name: Push to Nomad
         uses: SpyicyDev/nomad-job-runner-action@v1.0.0
