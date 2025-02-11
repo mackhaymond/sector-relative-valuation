@@ -42,7 +42,7 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
       - name: Setup Cloudflare Warp
-        uses: Boostport/setup-cloudflare-warp@v1
+        uses: oHTGo/setup-cloudflare-warp-action@master
         with:
           organization: spyicydev
           auth_client_id: ${{ secrets.CLOUDFLARE_AUTH_CLIENT_ID }}
