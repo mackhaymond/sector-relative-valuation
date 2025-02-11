@@ -7,20 +7,8 @@ packer {
   }
 }
 
-variable "registry" {
-  type    = string
-}
-
-variable "image_name" {
-  type = string
-}
-
 variable "image_tag" {
   type = string
-}
-
-variable "latest_tag" {
-  type    = string
 }
 
 source "docker" "quantsystem" {
@@ -59,8 +47,8 @@ build {
 
   post-processors {
     post-processor "docker-tag" {
-      repository = "${var.registry}/${var.image_name}"
-      tags       = [var.image_tag, var.latest_tag]
+      repository = "ghcr.io/spyicydev/quantsystem"
+      tags       = [var.image_tag, "latest"]
     }
 
     post-processor "docker-push" {}

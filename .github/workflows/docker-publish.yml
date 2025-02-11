@@ -46,13 +46,10 @@ jobs:
       - name: Build with Packer
         run: |
           packer build \
-            -var "registry=${{ env.REGISTRY }}" \
-            -var "image_name=${{ env.IMAGE_NAME }}" \
             -var "image_tag=sha-${{ github.sha }}" \
-            -var "latest_tag=latest" \
             .
 
-      - name: Push to Nomad
+      - name: Deploy to Nomad
         uses: SpyicyDev/nomad-job-runner-action@v1.0.0
         env:
           NOMAD_VAR_image_tag: sha-${{ github.sha }}
