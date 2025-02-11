@@ -1,10 +1,9 @@
 ---
 name: Build and Push Docker Image
 on:
-    workflow_dispatch:
-    push:
-      branches:
-        - main
+  workflow_dispatch:
+  push:
+    branches: [main]
 permissions:
   contents: write
 env:
@@ -41,17 +40,43 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-      - name: Setup Cloudflare Warp
-        uses: oHTGo/setup-cloudflare-warp-action@master
-        with:
-          organization: spyicydev
-          auth-client-id: ${{ secrets.CLOUDFLARE_AUTH_CLIENT_ID }}
-          auth-client-secret: ${{ secrets.CLOUDFLARE_AUTH_CLIENT_SECRET }}
+      - name: Setup Nginx Reverse Proxy
+        run: |
+          # Create an Nginx config template with quotes for the environment variables
+          cat <<'EOF' > nginx.conf.template
+          events {}
+          http {
+            server {
+              listen 80;
+              location / {
+                proxy_pass https://nomad.mackhaymond.co;
+                proxy_set_header Host nomad.mackhaymond.co;
+                proxy_set_header CF-Access-Client-Id "${{ secrets.CLOUDFLARE_AUTH_CLIENT_ID }}";
+                proxy_set_header CF-Access-Client-Secret "${{ secrets.CLOUDFLARE_AUTH_CLIENT_SECRET }}";
+                proxy_ssl_server_name on;
+                proxy_ssl_verify off;
+              }
+            }
+          }
+          EOF
+
+          # Substitute environment variables into the config template
+          envsubst < nginx.conf.template > nginx.conf
+
+          # Optionally, output the config for debugging (remove or mask secrets if necessary)
+          cat nginx.conf
+
+          # Start the Nginx proxy container (container port 80 is mapped to host port 8080)
+          docker run -d --rm --name nginx-proxy -p 8080:80 \
+            -v "$(pwd)/nginx.conf:/etc/nginx/nginx.conf:ro" \
+            nginx:stable
       - name: Setup `nomad`
         uses: hashicorp/setup-nomad@main
         id: setup
         with:
           version: latest
       - name: Run Nomad Job
-        run: |
-          NOMAD_ADDR=https://nomad.mackhaymond.co nomad job run nomad_jobspec.hcl
+        run: |-
+          nomad job run nomad_jobspec.hcl
+        env:
+          NOMAD_ADDR: https://nomad.mackhaymond.co
