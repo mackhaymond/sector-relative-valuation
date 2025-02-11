@@ -79,4 +79,4 @@ jobs:
         run: |-
           nomad job run nomad_jobspec.hcl
         env:
-          NOMAD_ADDR: https://nomad.mackhaymond.co
+          NOMAD_ADDR: http://127.0.0.1:8080
