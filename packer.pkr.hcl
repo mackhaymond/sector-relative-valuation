@@ -57,11 +57,12 @@ build {
 
   post-processors {
     post-processor "docker-tag" {
-      repository = "ghcr.io/spyicydev/quantsystem"
+      repository = "spyicydev/quantsystem"
       tags       = [var.image_tag, "latest"]
     }
 
     post-processor "docker-push" {
+      server = "https://ghcr.io"
       login = true
       login_username = var.registry_username
       login_password = var.registry_password
