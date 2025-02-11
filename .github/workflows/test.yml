@@ -21,27 +21,35 @@ jobs:
 
       - name: Setup Nginx Reverse Proxy
         run: |
-          # Write the Nginx configuration to a file
-          cat << 'EOF' > nginx.conf
+          # Write the Nginx configuration (substitute secrets directly for testing)
+          cat <<EOF > nginx.conf
           events {}
           http {
             server {
               listen 80;
               location / {
                 proxy_pass https://nomad.mackhaymond.co;
-                proxy_set_header CF-Access-Client-Id $CF_ACCESS_CLIENT_ID;
-                proxy_set_header CF-Access-Client-Secret $CF_ACCESS_CLIENT_SECRET;
+                proxy_set_header CF-Access-Client-Id ${{
+                  secrets.CLOUDFLARE_AUTH_CLIENT_ID
+                }};
+                proxy_set_header CF-Access-Client-Secret ${{
+                  secrets.CLOUDFLARE_AUTH_CLIENT_SECRET
+                }};
               }
             }
           }
           EOF
 
-          # Start an Nginx container with the above config
+          # Start the Nginx proxy container
           docker run -d --rm --name nginx-proxy -p 8080:80 \
-            -e CF_ACCESS_CLIENT_ID="${{ secrets.CLOUDFLARE_AUTH_CLIENT_ID }}" \
-            -e CF_ACCESS_CLIENT_SECRET="${{ secrets.CLOUDFLARE_AUTH_CLIENT_SECRET }}" \
             -v "$(pwd)/nginx.conf:/etc/nginx/nginx.conf:ro" \
             nginx:stable
+
+      - name: Wait for proxy to start
+        run: sleep 5
+
+      - name: Test the Proxy Endpoint
+        run: curl -v http://127.0.0.1:8080
 
       - name: Setup `nomad`
         uses: hashicorp/setup-nomad@main
@@ -50,7 +58,7 @@ jobs:
 
       - name: Run Nomad Job
         env:
-          # Point Nomad to the local proxy instead of the actual URL.
-          NOMAD_ADDR: http://localhost:8080
+          # Use the IPv4 address explicitly
+          NOMAD_ADDR: http://127.0.0.1:8080
         run: |
           nomad job run nomad_jobspec.hcl
