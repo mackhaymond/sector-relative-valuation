@@ -40,8 +40,8 @@ jobs:
         run: |
           packer build \
             -var "image_tag=sha-${{ github.sha }}" \
-            -var "registry_username=${{ github.actor }}"
-            -var "registry_password=${{ secrets.GITHUB_TOKEN }}"
+            -var "registry_username=${{ github.actor }}" \
+            -var "registry_password=${{ secrets.GITHUB_TOKEN }}" \
             .
 
       - name: Deploy to Nomad
