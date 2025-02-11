@@ -41,7 +41,7 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
       - name: Push to Nomad
-        uses: spyicydev/nomad-job-runner-action@v1.0.0
+        uses: SpyicyDev/nomad-job-runner-action@v1.0.0
         with:
           job_spec_file: nomad_jobspec.hcl
           cloudflare_client_id: ${{ secrets.CLOUDFLARE_AUTH_CLIENT_ID }}
