@@ -1,5 +1,7 @@
 job "quantsystem" {
   group "dashboard" {
+    count = 3
+
     network {
       port "dashboard_port" {
         to = 8050
