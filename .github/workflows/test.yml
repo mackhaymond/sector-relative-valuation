@@ -31,17 +31,21 @@ jobs:
                   flow.request.headers["CF-Access-Client-Secret"] = "${{ secrets.CLOUDFLARE_AUTH_CLIENT_SECRET }}"
           EOF
 
-      - name: Start mitmproxy
-        run: mitmdump -s inject_headers.py --mode transparent --listen-port 8080 &
+      - name: Start mitmproxy in upstream mode
+        run: mitmdump -s inject_headers.py --mode upstream:http://localhost:8081 --listen-port 8080 &
 
       - name: Set Proxy Environment Variables
         run: |
           echo "http_proxy=http://localhost:8080" >> $GITHUB_ENV
           echo "https_proxy=http://localhost:8080" >> $GITHUB_ENV
 
+      - name: Allow TLS Traffic
+        run: |
+          sudo iptables -t nat -A OUTPUT -p tcp --dport 443 -j REDIRECT --to-port 8080
+
       - name: Test requests with proxy
         run: |
-          # curl -v https://www.cloudflare.com/cdn-cgi/trace/
+          curl -v https://www.cloudflare.com/cdn-cgi/trace/
           curl --location -v https://nomad.mackhaymond.co
 
       - name: Setup `nomad`
