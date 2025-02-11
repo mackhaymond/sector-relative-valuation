@@ -43,7 +43,9 @@ jobs:
       - name: Setup Cloudflare Warp
         uses: Boostport/setup-cloudflare-warp@v1
         with:
-          warp-plus-code: ${{ secrets.WARP_PLUS_CODE }}
+          organization: spyicydev
+          auth_client_id: ${{ secrets.CLOUDFLARE_AUTH_CLIENT_ID }}
+          auth_client_secret: ${{ secrets.CLOUDFLARE_AUTH_CLIENT_SECRET }}
       - name: Setup Nomad
         uses: hashicorp/setup-nomad@v1
         with:
@@ -53,8 +55,3 @@ jobs:
           nomad job run nomad_jobspec.hcl
         env:
           NOMAD_ADDR: https://nomad.mackhaymond.co
-      - name: Trigger Coolify Deployment
-        run: |
-            curl -X POST "http://coolify.mackhaymond.co/api/v1/deploy?uuid=g4wc4cgw084008cw4cosgkwg&force=false" \
-                 -H "Authorization: Bearer ${{ secrets.DEPLOY_TOKEN }}" \
-                 -H "Content-Type: application/json"
