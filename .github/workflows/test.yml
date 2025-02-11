@@ -2,6 +2,9 @@
 ---
 name: test connect
 on:
+    push:
+      branches:
+        - main
     workflow_dispatch:
 permissions:
   contents: write
@@ -22,6 +25,7 @@ jobs:
           auth-client-secret: ${{ secrets.CLOUDFLARE_AUTH_CLIENT_SECRET }}
       - name: test it
         run: |
+          nslookup nomad.mackhaymond.co
           curl --location -v https://nomad.mackhaymond.co
       - name: Setup `nomad`
         uses: hashicorp/setup-nomad@main
