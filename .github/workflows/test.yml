@@ -1,0 +1,33 @@
+
+---
+name: test connect
+on:
+    workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Setup Cloudflare Warp
+        uses: oHTGo/setup-cloudflare-warp-action@master
+        with:
+          organization: spyicydev
+          auth-client-id: ${{ secrets.CLOUDFLARE_AUTH_CLIENT_ID }}
+          auth-client-secret: ${{ secrets.CLOUDFLARE_AUTH_CLIENT_SECRET }}
+      - name: test it
+        run: |
+          curl -v https://mackhaymond.co
+      - name: Setup `nomad`
+        uses: hashicorp/setup-nomad@main
+        id: setup
+        with:
+          version: latest
+      - name: Run Nomad Job
+        run: |
+          NOMAD_ADDR=https://nomad.mackhaymond.co nomad job run nomad_jobspec.hcl
