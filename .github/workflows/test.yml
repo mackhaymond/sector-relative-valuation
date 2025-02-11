@@ -25,7 +25,7 @@ jobs:
           auth-client-secret: ${{ secrets.CLOUDFLARE_AUTH_CLIENT_SECRET }}
       - name: test it
         run: |
-          warp-cli status
+          warp-cli --accept-tos status
           nslookup nomad.mackhaymond.co
           curl --location -v https://nomad.mackhaymond.co
       - name: Setup `nomad`
