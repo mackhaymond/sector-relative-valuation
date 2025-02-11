@@ -30,8 +30,8 @@ jobs:
               location / {
                 proxy_pass https://nomad.mackhaymond.co;
                 proxy_set_header Host nomad.mackhaymond.co;
-                proxy_set_header CF-Access-Client-Id "$CLIENT_ID";
-                proxy_set_header CF-Access-Client-Secret "$CLIENT_SECRET";
+                proxy_set_header CF-Access-Client-Id "${{ secrets.CLOUDFLARE_AUTH_CLIENT_ID }}";
+                proxy_set_header CF-Access-Client-Secret "${{ secrets.CLOUDFLARE_AUTH_CLIENT_SECRET }}";
                 proxy_ssl_server_name on;
                 proxy_ssl_verify off;
               }
@@ -47,8 +47,6 @@ jobs:
 
           # Start the Nginx proxy container (container port 80 is mapped to host port 8080)
           docker run -d --rm --name nginx-proxy -p 8080:80 \
-            -e CLIENT_ID="${{ secrets.CLOUDFLARE_AUTH_CLIENT_ID }}" \
-            -e CLIENT_SECRET="${{ secrets.CLOUDFLARE_AUTH_CLIENT_SECRET }}" \
             -v "$(pwd)/nginx.conf:/etc/nginx/nginx.conf:ro" \
             nginx:stable
 
