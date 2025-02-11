@@ -22,7 +22,7 @@ jobs:
           auth-client-secret: ${{ secrets.CLOUDFLARE_AUTH_CLIENT_SECRET }}
       - name: test it
         run: |
-          curl -v https://nomad.mackhaymond.co
+          curl --location -v https://nomad.mackhaymond.co
       - name: Setup `nomad`
         uses: hashicorp/setup-nomad@main
         id: setup
