@@ -47,6 +47,9 @@ jobs:
           organization: spyicydev
           auth_client_id: ${{ secrets.CLOUDFLARE_AUTH_CLIENT_ID }}
           auth_client_secret: ${{ secrets.CLOUDFLARE_AUTH_CLIENT_SECRET }}
+      - name: test it
+        run: |
+          curl https://www.cloudflare.com/cdn-cgi/trace/
       - name: Setup `nomad`
         uses: hashicorp/setup-nomad@main
         id: setup
