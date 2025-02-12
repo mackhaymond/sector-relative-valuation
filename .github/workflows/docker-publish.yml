@@ -1,15 +1,16 @@
----
 name: Build and Push Docker Image
+
 on:
-    workflow_dispatch:
-    push:
-      branches:
-        - main
+  workflow_dispatch:
+  push:
+    branches: [main]
 permissions:
   contents: write
+
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
+
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
@@ -19,12 +20,19 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Log in to the Container registry
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Extract metadata (tags, labels) for Docker
         id: meta
         uses: docker/metadata-action@v5
@@ -33,35 +41,25 @@ jobs:
           tags: |
             type=sha,format=long
             type=ref,event=branch
-            latest
+            type=raw,value=latest,enable={{is_default_branch}}
+
       - name: Build and push Docker image
-        if: false
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-      - name: Setup Cloudflare Warp
-        uses: Boostport/setup-cloudflare-warp@v1
-        with:
-          organization: spyicydev
-          auth_client_id: ${{ secrets.CLOUDFLARE_AUTH_CLIENT_ID }}
-          auth_client_secret: ${{ secrets.CLOUDFLARE_AUTH_CLIENT_SECRET }}
-          setup_docker_dns: true
-      - name: test it
-        run: |
-          curl https://www.cloudflare.com/cdn-cgi/trace/
-          echo "\n"
-          curl https://nomad.mackhaymond.co
-      - name: Setup `nomad`
-        uses: hashicorp/setup-nomad@main
-        id: setup
-        with:
-          version: latest
-      - name: Run Nomad Job
-        run: |
-          nomad job run jobspec.nomad.hcl
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64
+
+      - name: Push to Nomad
+        uses: SpyicyDev/nomad-job-runner-action@v1.0.0
         env:
-          NOMAD_ADDR: https://nomad.mackhaymond.co
           NOMAD_VAR_image_tag: sha-${{ github.sha }}
+        with:
+          job_spec_file: jobspec.nomad.hcl
+          cloudflare_client_id: ${{ secrets.CLOUDFLARE_AUTH_CLIENT_ID }}
+          cloudflare_client_secret: ${{ secrets.CLOUDFLARE_AUTH_CLIENT_SECRET }}
+          nomad_proxy_pass: https://nomad.mackhaymond.co
