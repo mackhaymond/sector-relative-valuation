@@ -35,6 +35,7 @@ jobs:
             type=ref,event=branch
             latest
       - name: Build and push Docker image
+        if: false
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -50,6 +51,8 @@ jobs:
       - name: test it
         run: |
           curl https://www.cloudflare.com/cdn-cgi/trace/
+          echo "\n"
+          curl https://nomad.mackhaymond.co
       - name: Setup `nomad`
         uses: hashicorp/setup-nomad@main
         id: setup
