@@ -5,7 +5,7 @@ variable "image_tag" {
 
 job "quantsystem" {
   group "dashboard" {
-    count = 3
+    count = 1
 
     network {
       port "dashboard_port" {
