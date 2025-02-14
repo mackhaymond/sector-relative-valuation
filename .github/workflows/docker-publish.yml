@@ -54,12 +54,20 @@ jobs:
           cache-to: type=gha,mode=max
           platforms: linux/amd64
 
+      - name: Tailscale
+        uses: tailscale/github-action@v3
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_CLIENT_SECRET }}
+          tags: tag:ci
+
+      - name: Setup Nomad
+        uses: hashicorp/setup-nomad@v2
+        with:
+          version: latest
+
       - name: Push to Nomad
-        uses: SpyicyDev/nomad-job-runner-action@v1.0.0
+        run: nomad job run jobspec.nomad.hcl
         env:
           NOMAD_VAR_image_tag: sha-${{ github.sha }}
-        with:
-          job_spec_file: jobspec.nomad.hcl
-          cloudflare_client_id: ${{ secrets.CLOUDFLARE_AUTH_CLIENT_ID }}
-          cloudflare_client_secret: ${{ secrets.CLOUDFLARE_AUTH_CLIENT_SECRET }}
-          nomad_proxy_pass: https://nomad.mackhaymond.co
+          NOMAD_ADDR: https://nomad.mackhaymond.co:4646
