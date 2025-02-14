@@ -70,4 +70,4 @@ jobs:
         run: nomad job run jobspec.nomad.hcl
         env:
           NOMAD_VAR_image_tag: sha-${{ github.sha }}
-          NOMAD_ADDR: https://nomad.mackhaymond.co:4646
+          NOMAD_ADDR: https://nomad.mackhaymond.co
