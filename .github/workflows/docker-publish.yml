@@ -62,7 +62,7 @@ jobs:
           tags: tag:ci
 
       - name: Setup Nomad
-        uses: hashicorp/setup-nomad@v2
+        uses: hashicorp/setup-nomad@main
         with:
           version: latest
 
