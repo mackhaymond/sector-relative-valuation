@@ -9,7 +9,6 @@ from scipy.stats import zscore
 from plotly.subplots import make_subplots
 import time
 from yfinance.exceptions import YFRateLimitError
-import requests
 
 # Import constants from data.py
 from data import (
@@ -138,50 +137,6 @@ STYLES = {
     }
 }
 
-# Create a session for YFinance
-def create_yf_session():
-    session = requests.Session()
-    session.headers['User-Agent'] = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/98.0.4758.102 Safari/537.36'
-    return session
-
-YF_SESSION = create_yf_session()
-
-def get_stock_info_with_retry(ticker, max_retries=3, base_delay=5):
-    """Get stock info with retry logic and rate limiting."""
-    for attempt in range(max_retries):
-        try:
-            # Create a new Ticker instance with our session
-            stock = yf.Ticker(ticker, session=YF_SESSION)
-            
-            # Add initial delay before first request
-            time.sleep(base_delay)
-            
-            # Get basic info first
-            info = stock.info
-            
-            # Add additional delay before history request
-            time.sleep(base_delay)
-            
-            # Get historical data
-            hist = stock.history(period="1y")
-            
-            # Combine the data
-            info['history'] = hist
-            return info
-            
-        except YFRateLimitError:
-            if attempt < max_retries - 1:
-                # Exponential backoff with longer base delay
-                sleep_time = base_delay * (2 ** attempt)
-                time.sleep(sleep_time)
-                # Create a fresh session after rate limit
-                global YF_SESSION
-                YF_SESSION = create_yf_session()
-            else:
-                raise
-        except Exception as e:
-            raise e
-
 # Create the layout
 app.layout = html.Div([
     html.H1('Stock Analysis Dashboard', style=STYLES['title']),
@@ -262,6 +217,21 @@ app.layout = html.Div([
         ])
     ])
 ], style=STYLES['container'])
+
+def get_stock_info_with_retry(ticker, max_retries=3, delay=2):
+    """Get stock info with retry logic and rate limiting."""
+    for attempt in range(max_retries):
+        try:
+            stock = yf.Ticker(ticker)
+            time.sleep(delay)  # Add delay before making the request
+            return stock.info
+        except YFRateLimitError:
+            if attempt < max_retries - 1:  # Don't sleep on the last attempt
+                time.sleep(delay * (attempt + 2))  # Exponential backoff
+            else:
+                raise
+        except Exception as e:
+            raise e
 
 @app.callback(
     Output('company-dropdown', 'options'),
