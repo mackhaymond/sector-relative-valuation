@@ -9,6 +9,7 @@ from scipy.stats import zscore
 from plotly.subplots import make_subplots
 import time
 from yfinance.exceptions import YFRateLimitError
+from functools import lru_cache
 
 # Import constants from data.py
 from data import (
@@ -220,16 +221,37 @@ app.layout = html.Div([
     ])
 ], style=STYLES['container'])
 
-def get_stock_info_with_retry(ticker, max_retries=3, delay=2):
-    """Get stock info with retry logic and rate limiting."""
+@lru_cache(maxsize=100)
+def get_historical_data(ticker, period="1y"):
+    """Cache historical data to avoid repeated requests."""
+    try:
+        stock = yf.Ticker(ticker)
+        time.sleep(2)  # Rate limiting delay
+        return stock.history(period=period)
+    except Exception as e:
+        print(f"Error fetching historical data for {ticker}: {e}")
+        return pd.DataFrame()
+
+def get_stock_data_with_retry(ticker, max_retries=3, base_delay=2):
+    """Get all required stock data with retry logic and rate limiting."""
     for attempt in range(max_retries):
         try:
+            # Get stock info
             stock = yf.Ticker(ticker)
-            time.sleep(delay)  # Add delay before making the request
-            return stock.info
+            time.sleep(base_delay)  # Rate limiting delay
+            info = stock.info
+            
+            # Get historical data using cached function
+            hist = get_historical_data(ticker)
+            
+            return {
+                'info': info,
+                'history': hist
+            }
         except YFRateLimitError:
-            if attempt < max_retries - 1:  # Don't sleep on the last attempt
-                time.sleep(delay * (attempt + 2))  # Exponential backoff
+            if attempt < max_retries - 1:
+                sleep_time = base_delay * (attempt + 2)  # Exponential backoff
+                time.sleep(sleep_time)
             else:
                 raise
         except Exception as e:
@@ -528,44 +550,10 @@ def analyze_individual_stock(n_clicks, ticker):
         sector_df = pd.read_csv('sector_analysis_full.csv')
         weights_df = pd.read_csv('weights.csv')
         
-        # Use the new retry function
-        stock_info = get_stock_info_with_retry(ticker)
-        
-        # Get historical data for custom calculations
-        hist_data = stock_info.get('history', pd.DataFrame())
-        
-        # Create DataFrame for the individual stock
-        stock_data = {'Ticker': ticker}
-        
-        # Get all metrics
-        for metric_name, yf_metric in ALL_METRICS.items():
-            if metric_name == "RSI":
-                # Calculate RSI
-                if not hist_data.empty:
-                    stock_data[metric_name] = calculate_rsi(hist_data['Close'])
-                else:
-                    stock_data[metric_name] = np.nan
-            elif metric_name == "ReturnSD":
-                # Calculate return SD
-                if not hist_data.empty:
-                    stock_data[metric_name] = calculate_return_sd(hist_data['Close'])
-                else:
-                    stock_data[metric_name] = np.nan
-            else:
-                # Get standard yfinance metrics
-                stock_data[metric_name] = stock_info.get(yf_metric, np.nan)
-            
-        # Print which stats were found and which are NaN
-        print(f"\n=== Stats Analysis for {ticker} ===")
-        print("Found stats:")
-        found_stats = [f"{metric}: {stock_data[metric]}" for metric in stock_data if not pd.isna(stock_data[metric]) and metric != 'Ticker']
-        for stat in found_stats:
-            print(f"  {stat}")
-        print("\nMissing stats (NaN):")
-        missing_stats = [metric for metric in stock_data if pd.isna(stock_data[metric]) and metric != 'Ticker']
-        for stat in missing_stats:
-            print(f"  {stat}")
-        print("=" * 40 + "\n")
+        # Get all stock data at once
+        stock_data = get_stock_data_with_retry(ticker)
+        stock_info = stock_data['info']
+        hist_data = stock_data['history']
         
         # Get the stock's sector
         stock_sector = stock_info.get('sector', '').lower().replace(' ', '-')
@@ -585,18 +573,18 @@ def analyze_individual_stock(n_clicks, ticker):
         for metric_group, info in category_stats.items():
             metric_zscores = []
             for metric in info['metrics']:
-                if metric in stock_data and not pd.isna(stock_data[metric]):
+                if metric in stock_info and not pd.isna(stock_info[metric]):
                     sector_values = sector_stocks[metric].dropna()
                     if not sector_values.empty and sector_values.std() != 0:
-                        z = (stock_data[metric] - sector_values.mean()) / sector_values.std()
+                        z = (stock_info[metric] - sector_values.mean()) / sector_values.std()
                         metric_zscores.append(z)
                         info['available'] += 1
             
             # Calculate composite score if we have at least one valid metric
             if metric_zscores:
-                stock_data[metric_group] = np.mean(metric_zscores)
+                stock_info[metric_group] = np.mean(metric_zscores)
             else:
-                stock_data[metric_group] = np.nan
+                stock_info[metric_group] = np.nan
                 print(f"Warning: No valid metrics found for {metric_group}")
         
         # Get weights for the sector
@@ -607,9 +595,9 @@ def analyze_individual_stock(n_clicks, ticker):
         total_weight = 0
         
         for metric_group in ['Risk_Score', 'Momentum_Score', 'Quality_Score']:
-            if not pd.isna(stock_data[metric_group]):
+            if not pd.isna(stock_info[metric_group]):
                 weight = sector_weights[metric_group] / 100
-                available_scores.append(stock_data[metric_group] * weight)
+                available_scores.append(stock_info[metric_group] * weight)
                 total_weight += weight
         
         # Normalize magic score based on available weights
@@ -652,7 +640,7 @@ def analyze_individual_stock(n_clicks, ticker):
         
         # Calculate predicted PE
         predicted_pe = fit[0] * magic_score + fit[1]
-        actual_pe = stock_data.get('PE', np.nan)
+        actual_pe = stock_info.get('PE', np.nan)
         if ticker.upper() == "MTNOY":
             actual_pe = predicted_pe - 9.73
         pe_deviation = actual_pe - predicted_pe
@@ -848,9 +836,9 @@ def analyze_individual_stock(n_clicks, ticker):
                 ("P/E Deviation", f"{pe_deviation:.2f}"),
             ]),
             ('Category Scores', [
-                ("Risk Score", f"{stock_data['Risk_Score']:.2f}"),
-                ("Momentum Score", f"{stock_data['Momentum_Score']:.2f}"),
-                ("Quality Score", f"{stock_data['Quality_Score']:.2f}"),
+                ("Risk Score", f"{stock_info['Risk_Score']:.2f}"),
+                ("Momentum Score", f"{stock_info['Momentum_Score']:.2f}"),
+                ("Quality Score", f"{stock_info['Quality_Score']:.2f}"),
             ])
         ]
         
