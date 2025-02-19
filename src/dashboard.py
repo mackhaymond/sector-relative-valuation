@@ -7,6 +7,8 @@ import os
 import yfinance as yf
 from scipy.stats import zscore
 from plotly.subplots import make_subplots
+import time
+from yfinance.exceptions import YFRateLimitError
 
 # Import constants from data.py
 from data import (
@@ -217,6 +219,21 @@ app.layout = html.Div([
         ])
     ])
 ], style=STYLES['container'])
+
+def get_stock_info_with_retry(ticker, max_retries=3, delay=2):
+    """Get stock info with retry logic and rate limiting."""
+    for attempt in range(max_retries):
+        try:
+            stock = yf.Ticker(ticker)
+            time.sleep(delay)  # Add delay before making the request
+            return stock.info
+        except YFRateLimitError:
+            if attempt < max_retries - 1:  # Don't sleep on the last attempt
+                time.sleep(delay * (attempt + 2))  # Exponential backoff
+            else:
+                raise
+        except Exception as e:
+            raise e
 
 @app.callback(
     Output('company-dropdown', 'options'),
@@ -511,12 +528,11 @@ def analyze_individual_stock(n_clicks, ticker):
         sector_df = pd.read_csv('sector_analysis_full.csv')
         weights_df = pd.read_csv('weights.csv')
         
-        # Get stock data
-        stock = yf.Ticker(ticker)
-        stock_info = stock.info
+        # Use the new retry function
+        stock_info = get_stock_info_with_retry(ticker)
         
         # Get historical data for custom calculations
-        hist_data = stock.history(period="1y")
+        hist_data = stock_info.get('history', pd.DataFrame())
         
         # Create DataFrame for the individual stock
         stock_data = {'Ticker': ticker}
