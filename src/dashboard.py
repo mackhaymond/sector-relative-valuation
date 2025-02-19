@@ -2,7 +2,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import numpy as np
-from dash import Dash, dcc, html, Input, Output, State, ctx
+from dash import Dash, dcc, html, Input, Output, State
 import os
 import yfinance as yf
 from scipy.stats import zscore
@@ -190,30 +190,32 @@ app.layout = html.Div([
                         'Analyze',
                         id='analyze-button',
                         style=STYLES['button']
-                    ),
-                    dcc.Loading(
-                        id="loading-analysis",
-                        type="circle",
-                        children=[
-                            html.Div(id='analysis-status'),
-                            html.Div(id='individual-analysis')
-                        ]
                     )
                 ], style={
                     'display': 'flex',
                     'alignItems': 'center',
                     'justifyContent': 'center',
                     'gap': '12px',
-                    'marginBottom': '16px',
-                    'flexWrap': 'wrap'
+                    'marginBottom': '16px'
                 }),
-                html.Div(style={
-                    'display': 'flex',
-                    'flexDirection': 'column',
-                    'alignItems': 'center',
-                    'gap': '20px'
+                html.Div(id='analysis-status', style={
+                    'textAlign': 'center',
+                    'fontFamily': FONT_FAMILY,
+                    'fontSize': '14px',
+                    'color': COLORS['text'],
+                    'marginTop': '8px'
                 })
-            ], style=STYLES['card'])
+            ], style=STYLES['card']),
+            
+            html.Div([
+                dcc.Graph(id='sector-scatter-plot')
+            ], style=STYLES['card']),
+            
+            html.Div([
+                dcc.Graph(id='pe-comparison-plot')
+            ], style=STYLES['card']),
+            
+            html.Div(id='individual-company-info', style=STYLES['card'])
         ])
     ])
 ], style=STYLES['container'])
@@ -510,17 +512,16 @@ def update_graph(selected_sector, selected_company):
     return fig, company_info
 
 @app.callback(
-    [Output('analysis-status', 'children'),
-     Output('individual-analysis', 'children')],
+    [Output('sector-scatter-plot', 'figure'),
+     Output('pe-comparison-plot', 'figure'),
+     Output('individual-company-info', 'children'),
+     Output('analysis-status', 'children')],
     [Input('analyze-button', 'n_clicks')],
     [State('ticker-input', 'value')]
 )
 def analyze_individual_stock(n_clicks, ticker):
-    if not n_clicks or not ticker:
-        return '', None
-        
-    if not ctx.triggered_id:
-        return '', None
+    if n_clicks is None or not ticker:
+        return {}, {}, None, ''
     
     try:
         # Load sector data and weights
@@ -569,7 +570,7 @@ def analyze_individual_stock(n_clicks, ticker):
         # Get the stock's sector
         stock_sector = stock_info.get('sector', '').lower().replace(' ', '-')
         if not stock_sector or stock_sector not in weights_df['Sector'].values:
-            return '', f"Error: Could not determine sector for {ticker}"
+            return {}, {}, None, f"Error: Could not determine sector for {ticker}"
         
         # Filter sector data
         sector_stocks = sector_df[sector_df['Sector'] == stock_sector].copy()
@@ -902,7 +903,7 @@ def analyze_individual_stock(n_clicks, ticker):
         
     except Exception as e:
         import traceback
-        return '', '', None, f"Error analyzing {ticker}: {str(e)}\n{traceback.format_exc()}"
+        return {}, {}, None, f"Error analyzing {ticker}: {str(e)}\n{traceback.format_exc()}"
 
 if __name__ == '__main__':
     app.run_server(debug=False, port=os.getenv('PORT', 8050), host='0.0.0.0')
