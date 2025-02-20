@@ -135,29 +135,6 @@ STYLES = {
         'fontSize': '14px',
         'marginRight': '10px',
         'width': '200px'
-    },
-    'status': {
-        'padding': '10px',
-        'marginTop': '10px',
-        'marginBottom': '10px',
-        'borderRadius': '4px',
-        'fontFamily': FONT_FAMILY,
-        'fontSize': '14px'
-    },
-    'status-info': {
-        'backgroundColor': '#e3f2fd',
-        'color': '#1976d2',
-        'border': '1px solid #90caf9'
-    },
-    'status-success': {
-        'backgroundColor': '#e8f5e9',
-        'color': '#2e7d32',
-        'border': '1px solid #a5d6a7'
-    },
-    'status-error': {
-        'backgroundColor': '#ffebee',
-        'color': '#c62828',
-        'border': '1px solid #ef9a9a'
     }
 }
 
@@ -222,15 +199,24 @@ app.layout = html.Div([
                     'gap': '12px',
                     'marginBottom': '16px'
                 }),
-                
-                # Add detailed status area
-                html.Div([
-                    html.Div(id='status-info', style=STYLES['status-info']),
-                    html.Div(id='status-error', style=STYLES['status-error']),
-                ], style={'display': 'block'}),
-                
-                html.Div(id='individual-analysis')
-            ], style=STYLES['card'])
+                html.Div(id='analysis-status', style={
+                    'textAlign': 'center',
+                    'fontFamily': FONT_FAMILY,
+                    'fontSize': '14px',
+                    'color': COLORS['text'],
+                    'marginTop': '8px'
+                })
+            ], style=STYLES['card']),
+            
+            html.Div([
+                dcc.Graph(id='sector-scatter-plot')
+            ], style=STYLES['card']),
+            
+            html.Div([
+                dcc.Graph(id='pe-comparison-plot')
+            ], style=STYLES['card']),
+            
+            html.Div(id='individual-company-info', style=STYLES['card'])
         ])
     ])
 ], style=STYLES['container'])
@@ -241,10 +227,10 @@ def get_historical_data(ticker, period="1y"):
     try:
         stock = yf.Ticker(ticker)
         time.sleep(2)  # Rate limiting delay
-        data = stock.history(period=period)
-        return data, None  # Return both data and error status
+        return stock.history(period=period)
     except Exception as e:
-        return pd.DataFrame(), str(e)  # Return empty DataFrame and error message
+        print(f"Error fetching historical data for {ticker}: {e}")
+        return pd.DataFrame()
 
 def get_stock_data_with_retry(ticker, max_retries=3, base_delay=2):
     """Get all required stock data with retry logic and rate limiting."""
@@ -256,37 +242,20 @@ def get_stock_data_with_retry(ticker, max_retries=3, base_delay=2):
             info = stock.info
             
             # Get historical data using cached function
-            hist_data, hist_error = get_historical_data(ticker)
+            hist = get_historical_data(ticker)
             
             return {
                 'info': info,
-                'history': hist_data,
-                'errors': {
-                    'info': None,
-                    'history': hist_error
-                },
-                'attempt': attempt + 1
+                'history': hist
             }
         except YFRateLimitError:
             if attempt < max_retries - 1:
-                sleep_time = base_delay * (attempt + 2)
+                sleep_time = base_delay * (attempt + 2)  # Exponential backoff
                 time.sleep(sleep_time)
             else:
                 raise
         except Exception as e:
-            if attempt < max_retries - 1:
-                sleep_time = base_delay * (attempt + 2)
-                time.sleep(sleep_time)
-            else:
-                return {
-                    'info': None,
-                    'history': None,
-                    'errors': {
-                        'info': str(e),
-                        'history': None
-                    },
-                    'attempt': attempt + 1
-                }
+            raise e
 
 @app.callback(
     Output('company-dropdown', 'options'),
@@ -565,57 +534,31 @@ def update_graph(selected_sector, selected_company):
     return fig, company_info
 
 @app.callback(
-    [Output('status-info', 'children'),
-     Output('status-error', 'children'),
-     Output('individual-analysis', 'children')],
+    [Output('sector-scatter-plot', 'figure'),
+     Output('pe-comparison-plot', 'figure'),
+     Output('individual-company-info', 'children'),
+     Output('analysis-status', 'children')],
     [Input('analyze-button', 'n_clicks')],
     [State('ticker-input', 'value')]
 )
 def analyze_individual_stock(n_clicks, ticker):
-    if not n_clicks or not ticker:
-        return '', '', None
+    if n_clicks is None or not ticker:
+        return {}, {}, None, ''
     
     try:
-        # Show initial status
-        status_info = html.Div([
-            html.P("Starting analysis...", style={'marginBottom': '5px'}),
-            html.P("• Loading sector data...", id='sector-status')
-        ])
-        
         # Load sector data and weights
         sector_df = pd.read_csv('sector_analysis_full.csv')
         weights_df = pd.read_csv('weights.csv')
         
-        # Update status for API requests
-        status_info = html.Div([
-            html.P("• Sector data loaded successfully", style={'marginBottom': '5px'}),
-            html.P(f"• Fetching data for {ticker.upper()}...", style={'marginBottom': '5px'}),
-        ])
-        
         # Get all stock data at once
         stock_data = get_stock_data_with_retry(ticker)
-        
-        if stock_data['errors']['info']:
-            return (
-                '',
-                f"Error fetching stock info (Attempt {stock_data['attempt']}): {stock_data['errors']['info']}",
-                None
-            )
-            
-        # Update status with success message
-        status_info = html.Div([
-            html.P("✓ Sector data loaded successfully", style={'marginBottom': '5px'}),
-            html.P(f"✓ Stock data fetched successfully (Attempt {stock_data['attempt']})", style={'marginBottom': '5px'}),
-            html.P("• Processing analysis...", style={'marginBottom': '5px'})
-        ])
-        
         stock_info = stock_data['info']
         hist_data = stock_data['history']
         
         # Get the stock's sector
         stock_sector = stock_info.get('sector', '').lower().replace(' ', '-')
         if not stock_sector or stock_sector not in weights_df['Sector'].values:
-            return '', f"Error: Could not determine sector for {ticker}", None
+            return {}, {}, None, f"Error: Could not determine sector for {ticker}"
         
         # Filter sector data
         sector_stocks = sector_df[sector_df['Sector'] == stock_sector].copy()
@@ -944,23 +887,11 @@ def analyze_individual_stock(n_clicks, ticker):
             for section_title, items in info_sections
         ])
         
-        return status_info, '', html.Div([
-            dcc.Graph(
-                figure=fig,
-                config={'displayModeBar': False}
-            ),
-            html.Div([
-                dcc.Graph(
-                    figure=deviation_fig,
-                    config={'displayModeBar': False}
-                )
-            ]),
-            info_card
-        ])
+        return fig, deviation_fig, info_card, f"Analysis complete for {ticker}"
         
     except Exception as e:
         import traceback
-        return '', f"Error analyzing {ticker}: {str(e)}\n{traceback.format_exc()}", None
+        return {}, {}, None, f"Error analyzing {ticker}: {str(e)}\n{traceback.format_exc()}"
 
 if __name__ == '__main__':
     app.run_server(debug=False, port=os.getenv('PORT', 8050), host='0.0.0.0')
