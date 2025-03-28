@@ -2,8 +2,8 @@
 name: Update Sector Analysis Data
 on:
   workflow_dispatch:
-  schedule:
-    - cron: 0 3 */2 * *
+  # schedule:
+    # - cron: 0 3 */2 * *
 permissions:
   contents: write
 jobs:
