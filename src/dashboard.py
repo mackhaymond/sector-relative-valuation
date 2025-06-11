@@ -257,36 +257,49 @@ def get_historical_data(ticker, period="1y"):
     """Cache historical data to avoid repeated requests."""
     try:
         stock = yf.Ticker(ticker)
-        time.sleep(2)  # Rate limiting delay
+        time.sleep(3)  # Rate limiting delay
         return stock.history(period=period)
     except Exception as e:
         print(f"Error fetching historical data for {ticker}: {e}")
         return pd.DataFrame()
 
-def get_stock_data_with_retry(ticker, max_retries=3, base_delay=2):
-    """Get all required stock data with retry logic and rate limiting."""
+
+def get_stock_data_with_retry(ticker, max_retries=5, base_delay=4):
+    """Get all required stock data with retry logic and rate limiting.
+
+    Returns a tuple of (data, log) where log is a list of status messages.
+    """
+    log_messages = []
     for attempt in range(max_retries):
         try:
+            log_messages.append(f"Request {attempt + 1} for {ticker}")
+
             # Get stock info
             stock = yf.Ticker(ticker)
             time.sleep(base_delay)  # Rate limiting delay
             info = stock.info
-            
+
             # Get historical data using cached function
             hist = get_historical_data(ticker)
-            
+
+            log_messages.append("Request successful")
             return {
                 'info': info,
                 'history': hist
-            }
+            }, log_messages
         except YFRateLimitError:
             if attempt < max_retries - 1:
                 sleep_time = base_delay * (attempt + 2)  # Exponential backoff
+                log_messages.append(
+                    f"Rate limit hit. Retrying in {sleep_time} seconds")
                 time.sleep(sleep_time)
             else:
+                log_messages.append("Rate limit hit. Max retries exceeded")
                 raise
         except Exception as e:
+            log_messages.append(f"Error: {e}")
             raise e
+
 
 @app.callback(
     [Output('company-dropdown', 'options'),
@@ -639,7 +652,7 @@ def analyze_individual_stock(n_clicks, ticker):
         weights_df = pd.read_csv('weights.csv')
         
         # Get all stock data at once
-        stock_data = get_stock_data_with_retry(ticker)
+        stock_data, log_messages = get_stock_data_with_retry(ticker)
         stock_info = stock_data['info']
         hist_data = stock_data['history']
         
@@ -1037,9 +1050,17 @@ def analyze_individual_stock(n_clicks, ticker):
                 html.Span(" | "),
                 html.Span("Magic Score: ", style={'fontWeight': 'bold'}),
                 html.Span(f"{magic_score:.2f}"),
-            ], style={'marginTop': '8px', 'fontSize': '13px'})
+            ], style={'marginTop': '8px', 'fontSize': '13px'}),
+            html.Pre("\n".join(log_messages), style={
+                'backgroundColor': COLORS['light_gray'],
+                'padding': '8px',
+                'borderRadius': '4px',
+                'marginTop': '12px',
+                'fontSize': '12px',
+                'whiteSpace': 'pre-wrap'
+            })
         ])
-        
+
         return fig, deviation_fig, info_card, success_message
         
     except Exception as e:
