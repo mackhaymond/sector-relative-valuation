@@ -263,15 +263,26 @@ def get_historical_data(ticker, period="1y"):
         print(f"Error fetching historical data for {ticker}: {e}")
         return pd.DataFrame()
 
+
+@lru_cache(maxsize=100)
+def get_ticker_info(ticker):
+    """Cache ticker info to minimize network calls."""
+    try:
+        stock = yf.Ticker(ticker)
+        time.sleep(2)  # Rate limiting delay
+        return stock.info
+    except Exception as e:
+        print(f"Error fetching info for {ticker}: {e}")
+        return {}
+
 def get_stock_data_with_retry(ticker, max_retries=3, base_delay=2):
     """Get all required stock data with retry logic and rate limiting."""
     for attempt in range(max_retries):
         try:
-            # Get stock info
-            stock = yf.Ticker(ticker)
-            time.sleep(base_delay)  # Rate limiting delay
-            info = stock.info
-            
+            # Get stock info using cached function
+            info = get_ticker_info(ticker)
+            time.sleep(base_delay)  # Additional delay to respect rate limits
+
             # Get historical data using cached function
             hist = get_historical_data(ticker)
             
