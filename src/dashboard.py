@@ -171,10 +171,20 @@ app.layout = html.Div([
             ], style=STYLES['card']),
             
             html.Div([
-                dcc.Graph(id='scatter-plot')
+                dcc.Loading(
+                    id="loading-sector-scatter",
+                    type="circle",
+                    children=dcc.Graph(id='scatter-plot')
+                )
             ], style=STYLES['card']),
             
-            html.Div(id='company-info', style=STYLES['card'])
+            html.Div([
+                dcc.Loading(
+                    id="loading-sector-company-info",
+                    type="circle",
+                    children=html.Div(id='company-info')
+                )
+            ], style=STYLES['card'])
         ]),
         
         dcc.Tab(label='Individual Stock Analysis', children=[
@@ -199,24 +209,45 @@ app.layout = html.Div([
                     'gap': '12px',
                     'marginBottom': '16px'
                 }),
-                html.Div(id='analysis-status', style={
-                    'textAlign': 'center',
-                    'fontFamily': FONT_FAMILY,
-                    'fontSize': '14px',
-                    'color': COLORS['text'],
-                    'marginTop': '8px'
-                })
+                html.Div([
+                    dcc.Loading(
+                        id="loading-analysis",
+                        type="circle",
+                        children=html.Div(id='analysis-status', style={
+                            'textAlign': 'center',
+                            'fontFamily': FONT_FAMILY,
+                            'fontSize': '14px',
+                            'color': COLORS['text'],
+                            'marginTop': '8px',
+                            'minHeight': '30px'
+                        })
+                    )
+                ])
             ], style=STYLES['card']),
             
             html.Div([
-                dcc.Graph(id='sector-scatter-plot')
+                dcc.Loading(
+                    id="loading-sector-plot",
+                    type="circle",
+                    children=dcc.Graph(id='sector-scatter-plot')
+                )
             ], style=STYLES['card']),
             
             html.Div([
-                dcc.Graph(id='pe-comparison-plot')
+                dcc.Loading(
+                    id="loading-pe-plot",
+                    type="circle",
+                    children=dcc.Graph(id='pe-comparison-plot')
+                )
             ], style=STYLES['card']),
             
-            html.Div(id='individual-company-info', style=STYLES['card'])
+            html.Div([
+                dcc.Loading(
+                    id="loading-company-info",
+                    type="circle",
+                    children=html.Div(id='individual-company-info')
+                )
+            ], style=STYLES['card'])
         ])
     ])
 ], style=STYLES['container'])
@@ -258,12 +289,16 @@ def get_stock_data_with_retry(ticker, max_retries=3, base_delay=2):
             raise e
 
 @app.callback(
-    Output('company-dropdown', 'options'),
+    [Output('company-dropdown', 'options'),
+     Output('company-dropdown', 'value')],
     Input('sector-dropdown', 'value')
 )
 def update_company_dropdown(selected_sector):
     filtered_df = df[df['Sector'] == selected_sector]
-    return [{'label': row['Ticker'], 'value': row['Ticker']} for _, row in filtered_df.iterrows()]
+    options = [{'label': row['Ticker'], 'value': row['Ticker']} for _, row in filtered_df.iterrows()]
+    # Set default value to first company in the list, or None if list is empty
+    default_value = options[0]['value'] if options else None
+    return options, default_value
 
 @app.callback(
     Output('scatter-plot', 'figure'),
@@ -275,8 +310,59 @@ def update_graph(selected_sector, selected_company):
     # Create a copy of the filtered dataframe to avoid SettingWithCopyWarning
     filtered_df = df[df['Sector'] == selected_sector].copy()
     
+    # Check if filtered_df is empty
+    if filtered_df.empty:
+        # Return empty figure and no company info
+        empty_fig = go.Figure()
+        empty_fig.update_layout(
+            title=dict(
+                text='No data available for selected sector',
+                font=dict(
+                    family=FONT_FAMILY,
+                    size=24,
+                    color=COLORS['text']
+                ),
+                x=0.5,
+                xanchor='center'
+            ),
+            height=600
+        )
+        return empty_fig, None
+    
     x = filtered_df['magic_score']
     y = filtered_df['PE']
+    
+    # Check if there are enough data points for fitting
+    if len(x) < 2 or len(y) < 2:
+        # Return basic scatter plot without fit line
+        basic_fig = go.Figure()
+        basic_fig.add_trace(go.Scatter(
+            x=x,
+            y=y,
+            mode='markers',
+            name='Stocks',
+            marker=dict(
+                size=10,
+                color=COLORS['primary'],
+                line=dict(width=1.5, color='white'),
+                opacity=0.8
+            )
+        ))
+        basic_fig.update_layout(
+            title=dict(
+                text=f'Insufficient data for {GICS_SECTOR_MAPPING[selected_sector]} sector',
+                font=dict(
+                    family=FONT_FAMILY,
+                    size=24,
+                    color=COLORS['text']
+                ),
+                x=0.5,
+                xanchor='center'
+            ),
+            height=600
+        )
+        return basic_fig, None
+    
     fit = np.polyfit(x, y, 1)
     line_x = np.array([x.min(), x.max()])
     line_y = fit[0] * line_x + fit[1]
@@ -348,7 +434,8 @@ def update_graph(selected_sector, selected_company):
     )
     
     # Highlight selected company
-    if (selected_company):
+    company_info = None
+    if selected_company and not filtered_df[filtered_df['Ticker'] == selected_company].empty:
         company_data = filtered_df[filtered_df['Ticker'] == selected_company].iloc[0]
         fig.add_trace(go.Scatter(
             x=[company_data['magic_score']],
@@ -477,9 +564,7 @@ def update_graph(selected_sector, selected_company):
                 config={'displayModeBar': False}
             )
         ])
-    else:
-        company_info = None
-
+    
     # Update layout
     fig.update_layout(
         title=dict(
@@ -545,6 +630,9 @@ def analyze_individual_stock(n_clicks, ticker):
     if n_clicks is None or not ticker:
         return {}, {}, None, ''
     
+    # Initial status message
+    status_message = f"Analyzing {ticker}..."
+    
     try:
         # Load sector data and weights
         sector_df = pd.read_csv('sector_analysis_full.csv')
@@ -572,20 +660,56 @@ def analyze_individual_stock(n_clicks, ticker):
         
         for metric_group, info in category_stats.items():
             metric_zscores = []
-            for metric in info['metrics']:
-                if metric in stock_info and not pd.isna(stock_info[metric]):
-                    sector_values = sector_stocks[metric].dropna()
+            for metric_name, yf_metric in info['metrics'].items():
+                # First check if metric is directly available in stock info
+                if yf_metric in stock_info and not pd.isna(stock_info[yf_metric]):
+                    value = stock_info[yf_metric]
+                    sector_values = sector_stocks[metric_name].dropna() if metric_name in sector_stocks.columns else pd.Series()
                     if not sector_values.empty and sector_values.std() != 0:
-                        z = (stock_info[metric] - sector_values.mean()) / sector_values.std()
+                        z = (value - sector_values.mean()) / sector_values.std()
                         metric_zscores.append(z)
                         info['available'] += 1
+                # For custom metrics that need to be calculated
+                elif metric_name == "ReturnSD" and not hist_data.empty:
+                    try:
+                        value = calculate_return_sd(hist_data['Close'])
+                        sector_values = sector_stocks[metric_name].dropna() if metric_name in sector_stocks.columns else pd.Series()
+                        if not sector_values.empty and sector_values.std() != 0:
+                            z = (value - sector_values.mean()) / sector_values.std()
+                            metric_zscores.append(z)
+                            info['available'] += 1
+                    except Exception as e:
+                        print(f"Error calculating {metric_name}: {e}")
+                        
+                elif metric_name == "MaxDrawdown" and not hist_data.empty:
+                    try:
+                        value = calculate_max_drawdown(hist_data['Close'])
+                        sector_values = sector_stocks[metric_name].dropna() if metric_name in sector_stocks.columns else pd.Series()
+                        if not sector_values.empty and sector_values.std() != 0:
+                            z = (value - sector_values.mean()) / sector_values.std()
+                            metric_zscores.append(z)
+                            info['available'] += 1
+                    except Exception as e:
+                        print(f"Error calculating {metric_name}: {e}")
+                        
+                elif metric_name == "RSI" and not hist_data.empty:
+                    try:
+                        value = calculate_rsi(hist_data['Close'])
+                        sector_values = sector_stocks[metric_name].dropna() if metric_name in sector_stocks.columns else pd.Series()
+                        if not sector_values.empty and sector_values.std() != 0:
+                            z = (value - sector_values.mean()) / sector_values.std()
+                            metric_zscores.append(z)
+                            info['available'] += 1
+                    except Exception as e:
+                        print(f"Error calculating {metric_name}: {e}")
             
             # Calculate composite score if we have at least one valid metric
             if metric_zscores:
                 stock_info[metric_group] = np.mean(metric_zscores)
             else:
-                stock_info[metric_group] = np.nan
-                print(f"Warning: No valid metrics found for {metric_group}")
+                # If no metrics, assign a neutral score (0) instead of NaN
+                stock_info[metric_group] = 0.0
+                print(f"Warning: No valid metrics found for {metric_group}, using neutral score")
         
         # Get weights for the sector
         sector_weights = weights_df[weights_df['Sector'] == stock_sector].iloc[0]
@@ -595,16 +719,21 @@ def analyze_individual_stock(n_clicks, ticker):
         total_weight = 0
         
         for metric_group in ['Risk_Score', 'Momentum_Score', 'Quality_Score']:
-            if not pd.isna(stock_info[metric_group]):
-                weight = sector_weights[metric_group] / 100
-                available_scores.append(stock_info[metric_group] * weight)
-                total_weight += weight
+            # Since we've set default values to 0, all scores should be available
+            weight = sector_weights[metric_group] / 100
+            available_scores.append(stock_info[metric_group] * weight)
+            total_weight += weight
         
         # Normalize magic score based on available weights
-        if available_scores and total_weight > 0:
+        if total_weight > 0:
             magic_score = sum(available_scores) * (1 / total_weight)
         else:
-            raise ValueError("Unable to calculate magic score: no valid category scores available")
+            # Fallback to a simple average if weights are zero
+            magic_score = np.mean([
+                stock_info['Risk_Score'], 
+                stock_info['Momentum_Score'], 
+                stock_info['Quality_Score']
+            ])
         
         # Calculate magic scores for sector stocks
         def calculate_magic_score(row):
@@ -640,9 +769,20 @@ def analyze_individual_stock(n_clicks, ticker):
         
         # Calculate predicted PE
         predicted_pe = fit[0] * magic_score + fit[1]
-        actual_pe = stock_info.get('PE', np.nan)
-        if ticker.upper() == "MTNOY":
-            actual_pe = predicted_pe - 9.73
+        
+        # Handle PE values properly
+        actual_pe = stock_info.get('trailingPE', np.nan)
+        if pd.isna(actual_pe):
+            # Try to get PE from other possible keys
+            for pe_key in ['trailingPE', 'forwardPE', 'pegRatio']:
+                if pe_key in stock_info and not pd.isna(stock_info[pe_key]):
+                    actual_pe = stock_info[pe_key]
+                    break
+                    
+        # If still no PE value, use predicted PE
+        if pd.isna(actual_pe):
+            actual_pe = predicted_pe
+            
         pe_deviation = actual_pe - predicted_pe
         
         # Add equation and R² annotation
@@ -887,11 +1027,37 @@ def analyze_individual_stock(n_clicks, ticker):
             for section_title, items in info_sections
         ])
         
-        return fig, deviation_fig, info_card, f"Analysis complete for {ticker}"
+        # Create success message with metrics summary
+        success_message = html.Div([
+            html.Span(f"Analysis complete for ", style={'color': COLORS['text']}),
+            html.Span(f"{ticker}", style={'fontWeight': 'bold', 'color': COLORS['primary']}),
+            html.Div([
+                html.Span("Sector: ", style={'fontWeight': 'bold'}),
+                html.Span(f"{GICS_SECTOR_MAPPING.get(stock_sector, stock_sector)}"),
+                html.Span(" | "),
+                html.Span("Magic Score: ", style={'fontWeight': 'bold'}),
+                html.Span(f"{magic_score:.2f}"),
+            ], style={'marginTop': '8px', 'fontSize': '13px'})
+        ])
+        
+        return fig, deviation_fig, info_card, success_message
         
     except Exception as e:
         import traceback
-        return {}, {}, None, f"Error analyzing {ticker}: {str(e)}\n{traceback.format_exc()}"
+        error_message = html.Div([
+            html.Span("Error analyzing ", style={'color': COLORS['text']}),
+            html.Span(f"{ticker}", style={'fontWeight': 'bold', 'color': COLORS['secondary']}),
+            html.Div(str(e), style={
+                'marginTop': '8px', 
+                'fontSize': '13px', 
+                'color': COLORS['secondary'],
+                'fontFamily': 'monospace',
+                'maxHeight': '100px',
+                'overflow': 'auto'
+            })
+        ])
+        print(f"Error analyzing {ticker}: {str(e)}\n{traceback.format_exc()}")
+        return {}, {}, None, error_message
 
 if __name__ == '__main__':
     app.run_server(debug=False, port=os.getenv('PORT', 8050), host='0.0.0.0')

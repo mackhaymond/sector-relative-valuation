@@ -218,11 +218,30 @@ async def process_companies_async(companies: List[str], all_metrics: Dict[str, s
     return company_data_list
 
 async def get_sector_companies(sector: str) -> List[str]:
-    """Get companies for a given sector using yfinance."""
+    """Get companies for a given sector."""
+    # Hard-coded mapping of sectors to representative companies
+    # In a real-world implementation, this would be fetched from an API or database
+    sector_companies = {
+        "basic-materials": ["BHP", "RIO", "VALE", "NEM", "ECL", "SHW", "APD", "LIN", "SCCO", "FCX", "NUE", "MLM", "ALB", "AXTA", "DOW", "DD"],
+        "communication-services": ["GOOGL", "META", "DIS", "NFLX", "CMCSA", "VZ", "T", "TMUS", "ATVI", "EA", "TWTR", "SNAP", "SPOT", "PINS"],
+        "consumer-cyclical": ["AMZN", "TSLA", "HD", "MCD", "NKE", "SBUX", "TM", "BABA", "EBAY", "ETSY", "LOW", "TJX", "GM", "F"],
+        "consumer-defensive": ["WMT", "PG", "KO", "PEP", "COST", "PM", "MO", "EL", "CL", "GIS", "K", "KHC", "HSY", "KR"],
+        "energy": ["XOM", "CVX", "RDS-A", "BP", "TTE", "COP", "SLB", "EOG", "MPC", "PSX", "VLO", "OXY", "KMI", "WMB"],
+        "financial-services": ["BRK-B", "JPM", "V", "MA", "BAC", "WFC", "C", "MS", "GS", "AXP", "SCHW", "BLK", "CB", "PGR"],
+        "healthcare": ["JNJ", "UNH", "PFE", "MRK", "ABBV", "LLY", "ABT", "TMO", "DHR", "MDT", "AMGN", "BMY", "ISRG", "GILD"],
+        "industrials": ["HON", "UNP", "UPS", "BA", "RTX", "CAT", "DE", "GE", "MMM", "LMT", "GD", "EMR", "ETN", "CMI"],
+        "real-estate": ["AMT", "PLD", "CCI", "EQIX", "PSA", "O", "DLR", "AVB", "EQR", "SPG", "WELL", "VTR", "ARE", "BXP"],
+        "technology": ["AAPL", "MSFT", "NVDA", "TSM", "AVGO", "CSCO", "ORCL", "ADBE", "CRM", "ACN", "IBM", "INTC", "AMD", "MU"],
+        "utilities": ["NEE", "DUK", "SO", "D", "AEP", "EXC", "SRE", "XEL", "ED", "ES", "WEC", "DTE", "ETR", "FE"]
+    }
+    
     try:
-        # Use yfinance to get sector companies
-        sector_obj = yf.Sector(sector)
-        return list(sector_obj.top_companies.index)
+        # Return companies for the given sector
+        if sector in sector_companies:
+            return sector_companies[sector]
+        else:
+            print(f"No predefined companies for sector {sector}")
+            return []
     except Exception as e:
         print(f"Error getting companies for sector {sector}: {e}")
         return []
@@ -234,7 +253,7 @@ async def process_sector_async(sector: str, metrics: Dict[str, Dict[str, str]]) 
         
         if not companies:
             print(f"No companies found for sector {sector}")
-            return None
+            return None, None
             
         # Get raw data
         company_data_list = await process_companies_async(companies, metrics["all_metrics"])
@@ -244,17 +263,17 @@ async def process_sector_async(sector: str, metrics: Dict[str, Dict[str, str]]) 
         
         if df is None or df.empty:
             print(f"No data available for sector {sector}")
-            return None
+            return None, None
             
         # Add sector column before processing
         df["Sector"] = sector
         
         # Process data
-        df = await process_data(df, metrics)
-        return df
+        full_df, simple_df = await process_data(df, metrics)
+        return full_df, simple_df
     except Exception as e:
         print(f"Error processing sector {sector}: {e}")
-        return None
+        return None, None
 
 async def process_data(df: pd.DataFrame, metrics: Dict[str, Dict[str, str]]) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Process the collected data by calculating z-scores and composite scores"""
@@ -307,9 +326,9 @@ async def analyze_sectors_async(sectors: List[str] = SECTORS) -> pd.DataFrame:
     
     for sector in tqdm(sectors, desc="Processing sectors"):
         await asyncio.sleep(INDUSTRY_DELAY)  # Rate limiting between sectors
-        full_data, sector_data = await process_sector_async(sector, METRICS)
-        if sector_data is not None:
-            all_data.append(sector_data)
+        full_data, simple_data = await process_sector_async(sector, METRICS)
+        if simple_data is not None:
+            all_data.append(simple_data)
         if full_data is not None:
             all_data_full.append(full_data)
     
