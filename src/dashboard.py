@@ -11,6 +11,12 @@ import time
 from yfinance.exceptions import YFRateLimitError
 from functools import lru_cache
 
+# Simple caches and counters for API requests
+STOCK_INFO_CACHE = {}
+HIST_CACHE = {}
+CACHE_TTL = 60 * 60  # one hour
+API_REQUEST_COUNT = 0
+
 # Import constants from data.py
 from data import (
     X1_RISK_METRICS,
@@ -252,32 +258,55 @@ app.layout = html.Div([
     ])
 ], style=STYLES['container'])
 
-@lru_cache(maxsize=100)
 def get_historical_data(ticker, period="1y"):
-    """Cache historical data to avoid repeated requests."""
+    """Get historical data with TTL caching."""
+    global API_REQUEST_COUNT
+    now = time.time()
+    cached = HIST_CACHE.get((ticker, period))
+    if cached and now - cached[1] < CACHE_TTL:
+        return cached[0], True
+
     try:
         stock = yf.Ticker(ticker)
-        time.sleep(2)  # Rate limiting delay
-        return stock.history(period=period)
+        time.sleep(2)
+        hist = stock.history(period=period)
+        HIST_CACHE[(ticker, period)] = (hist, now)
+        API_REQUEST_COUNT += 1
+        return hist, False
     except Exception as e:
         print(f"Error fetching historical data for {ticker}: {e}")
-        return pd.DataFrame()
+        return pd.DataFrame(), False
 
-def get_stock_data_with_retry(ticker, max_retries=3, base_delay=2):
-    """Get all required stock data with retry logic and rate limiting."""
+def get_stock_info(ticker):
+    """Get stock info with TTL caching."""
+    global API_REQUEST_COUNT
+    now = time.time()
+    cached = STOCK_INFO_CACHE.get(ticker)
+    if cached and now - cached[1] < CACHE_TTL:
+        return cached[0], True
+
+    try:
+        stock = yf.Ticker(ticker)
+        time.sleep(2)
+        info = stock.info
+        STOCK_INFO_CACHE[ticker] = (info, now)
+        API_REQUEST_COUNT += 1
+        return info, False
+    except Exception as e:
+        print(f"Error fetching stock info for {ticker}: {e}")
+        return {}, False
+
+def get_stock_data_with_retry(ticker, max_retries=3, base_delay=1):
+    """Get stock info and history with caching and retry."""
     for attempt in range(max_retries):
         try:
-            # Get stock info
-            stock = yf.Ticker(ticker)
-            time.sleep(base_delay)  # Rate limiting delay
-            info = stock.info
-            
-            # Get historical data using cached function
-            hist = get_historical_data(ticker)
-            
+            info, info_cached = get_stock_info(ticker)
+            hist, hist_cached = get_historical_data(ticker)
             return {
                 'info': info,
-                'history': hist
+                'history': hist,
+                'info_cached': info_cached,
+                'history_cached': hist_cached
             }
         except YFRateLimitError:
             if attempt < max_retries - 1:
@@ -642,6 +671,8 @@ def analyze_individual_stock(n_clicks, ticker):
         stock_data = get_stock_data_with_retry(ticker)
         stock_info = stock_data['info']
         hist_data = stock_data['history']
+        info_cached = stock_data.get('info_cached', False)
+        hist_cached = stock_data.get('history_cached', False)
         
         # Get the stock's sector
         stock_sector = stock_info.get('sector', '').lower().replace(' ', '-')
@@ -1037,7 +1068,15 @@ def analyze_individual_stock(n_clicks, ticker):
                 html.Span(" | "),
                 html.Span("Magic Score: ", style={'fontWeight': 'bold'}),
                 html.Span(f"{magic_score:.2f}"),
-            ], style={'marginTop': '8px', 'fontSize': '13px'})
+            ], style={'marginTop': '8px', 'fontSize': '13px'}),
+            html.Div(
+                f"API requests this session: {API_REQUEST_COUNT}",
+                style={'marginTop': '4px', 'fontSize': '12px'}
+            ),
+            html.Div(
+                f"Cache used - info: {info_cached}, history: {hist_cached}",
+                style={'fontSize': '12px'}
+            )
         ])
         
         return fig, deviation_fig, info_card, success_message
