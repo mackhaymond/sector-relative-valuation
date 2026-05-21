@@ -77,5 +77,5 @@ Major dependencies include:
 
 ## Authors
 
-Mack Haymond (SpyicyDev)
+Mack Haymond (mackhaymond)
 Ezra Schwartz (EzrSchwartz)

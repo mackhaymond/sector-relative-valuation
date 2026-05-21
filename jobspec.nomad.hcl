@@ -18,7 +18,7 @@ job "quantsystem" {
 
       config {
         # The IMAGE_TAG environment variable will be interpolated at runtime.
-        image = "ghcr.io/spyicydev/quantsystem:${var.image_tag}"
+        image = "ghcr.io/mackhaymond/quantsystem:${var.image_tag}"
         ports = ["dashboard_port"]
       }
 
