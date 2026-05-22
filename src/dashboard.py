@@ -273,46 +273,49 @@ app.layout = html.Div([
                         ]),
                         
                         # Risk Metrics
-                        html.Div([
-                            dcc.Checklist(
-                                id='risk-checklist',
-                                options=[
-                                    {'label': 'Max Drawdown', 'value': 'MaxDrawdown'},
-                                    {'label': 'Debt To Equity', 'value': 'DebtToEquity'},
-                                    {'label': 'Return SD', 'value': 'ReturnSD'},
-                                ],
-                                value=['MaxDrawdown', 'DebtToEquity', 'ReturnSD'],
-                                labelStyle={'display': 'block', 'marginLeft': '20px'}
-                            ),
-                        ], style={'marginBottom': '15px'}),
-                        
+                        html.Div(
+                            id='risk-metrics-display',
+                            children=[
+                                html.Span('Composed of (equal-weighted z-scores):',
+                                          style={'fontSize': '13px', 'color': COLORS['text'], 'marginLeft': '20px'}),
+                                html.Ul([
+                                    html.Li('Max Drawdown'),
+                                    html.Li('Debt-to-Equity'),
+                                    html.Li('Return SD'),
+                                ], style={'marginLeft': '40px', 'marginTop': '4px', 'fontSize': '13px'}),
+                            ],
+                            style={'marginBottom': '15px'},
+                        ),
+
                         # Momentum Metrics
-                        html.Div([
-                            dcc.Checklist(
-                                id='momentum-checklist',
-                                options=[
-                                    {'label': 'Price Change 12M', 'value': 'PriceChange12M'},
-                                    {'label': 'RSI', 'value': 'RSI'},
-                                    {'label': 'Earnings Growth', 'value': 'EarningsGrowth'},
-                                ],
-                                value=['PriceChange12M', 'RSI', 'EarningsGrowth'],
-                                labelStyle={'display': 'block', 'marginLeft': '20px'}
-                            ),
-                        ], style={'marginBottom': '15px'}),
-                        
+                        html.Div(
+                            id='momentum-metrics-display',
+                            children=[
+                                html.Span('Composed of (equal-weighted z-scores):',
+                                          style={'fontSize': '13px', 'color': COLORS['text'], 'marginLeft': '20px'}),
+                                html.Ul([
+                                    html.Li('Price Change 12M'),
+                                    html.Li('RSI'),
+                                    html.Li('Earnings Growth'),
+                                ], style={'marginLeft': '40px', 'marginTop': '4px', 'fontSize': '13px'}),
+                            ],
+                            style={'marginBottom': '15px'},
+                        ),
+
                         # Quality Metrics
-                        html.Div([
-                            dcc.Checklist(
-                                id='quality-checklist',
-                                options=[
-                                    {'label': 'ROE', 'value': 'ROE'},
-                                    {'label': 'ROA', 'value': 'ROA'},
-                                    {'label': 'Operating Margin', 'value': 'OperatingMargin'},
-                                ],
-                                value=['ROE', 'ROA', 'OperatingMargin'],
-                                labelStyle={'display': 'block', 'marginLeft': '20px'}
-                            ),
-                        ], style={'marginBottom': '15px'}),
+                        html.Div(
+                            id='quality-metrics-display',
+                            children=[
+                                html.Span('Composed of (equal-weighted z-scores):',
+                                          style={'fontSize': '13px', 'color': COLORS['text'], 'marginLeft': '20px'}),
+                                html.Ul([
+                                    html.Li('ROE'),
+                                    html.Li('ROA'),
+                                    html.Li('Operating Margin'),
+                                ], style={'marginLeft': '40px', 'marginTop': '4px', 'fontSize': '13px'}),
+                            ],
+                            style={'marginBottom': '15px'},
+                        ),
                     ], style={'flex': '1', 'minWidth': '300px'}),
                     
                     # Regression Output
@@ -719,12 +722,12 @@ def update_graph(selected_sector, selected_company):
 
 # Callbacks for Factor Selection tab
 @app.callback(
-    [Output('risk-checklist', 'style'),
-     Output('momentum-checklist', 'style'),
-     Output('quality-checklist', 'style')],
+    [Output('risk-metrics-display', 'style'),
+     Output('momentum-metrics-display', 'style'),
+     Output('quality-metrics-display', 'style')],
     [Input('factor-group-checklist', 'value')]
 )
-def toggle_factor_checklists(selected_groups):
+def toggle_factor_displays(selected_groups):
     hidden_style = {'display': 'none', 'marginBottom': '15px'}
     visible_style = {'marginBottom': '15px'}
 
@@ -733,51 +736,35 @@ def toggle_factor_checklists(selected_groups):
 
     return [
         visible_style if group in selected_groups else hidden_style
-        for group in ('risk', 'momentum', 'quality')
+        for group in ['risk', 'momentum', 'quality']
     ]
-
-@app.callback(
-    [Output('risk-checklist', 'value'),
-     Output('momentum-checklist', 'value'),
-     Output('quality-checklist', 'value')],
-    [Input('factor-group-checklist', 'value')]
-)
-def reset_checklist_values(selected_groups):
-    if not selected_groups:
-        selected_groups = ['risk', 'momentum', 'quality']
-
-    defaults = {
-        'risk': list(X1_RISK_METRICS.keys()),
-        'momentum': list(X2_MOMENTUM_METRICS.keys()),
-        'quality': list(X3_QUALITY_METRICS.keys()),
-    }
-
-    return [defaults[group] if group in selected_groups else [] for group in ('risk', 'momentum', 'quality')]
 
 
 # Callback for the Recalculate button to update regression
 @app.callback(
     Output('reg-output', 'children'),
     [Input('recalculate-button', 'n_clicks')],
-    [State('risk-checklist', 'value'),
-     State('momentum-checklist', 'value'),
-     State('quality-checklist', 'value'),
-     State('factor-group-checklist', 'value')]
+    [State('factor-group-checklist', 'value')]
 )
-def update_regression_output(n_clicks, risk_metrics, momentum_metrics, quality_metrics, selected_groups):
+def update_regression_output(n_clicks, selected_groups):
     import statsmodels.api as sm
 
     if not selected_groups:
         selected_groups = ['risk', 'momentum', 'quality']
 
-    # The composites in sector_analysis.csv are pre-computed averages of
-    # all underlying metrics in each group; the per-metric checklists are
-    # purely informational. Each selected group contributes its single
-    # composite column to the OLS design matrix.
+    # Each enabled factor group contributes its single pre-computed
+    # composite column to the OLS design matrix. The composite is the
+    # equal-weighted mean of the group's underlying metric z-scores,
+    # produced once by data.py and persisted to sector_analysis.csv.
     group_to_column = {
         'risk': 'Risk_Score',
         'momentum': 'Momentum_Score',
         'quality': 'Quality_Score',
+    }
+    group_to_metrics = {
+        'risk': list(X1_RISK_METRICS.keys()),
+        'momentum': list(X2_MOMENTUM_METRICS.keys()),
+        'quality': list(X3_QUALITY_METRICS.keys()),
     }
     factor_columns = {
         group.capitalize(): [group_to_column[group]]
@@ -791,6 +778,7 @@ def update_regression_output(n_clicks, risk_metrics, momentum_metrics, quality_m
             'Momentum': ['Momentum_Score'],
             'Quality': ['Quality_Score'],
         }
+        selected_groups = ['risk', 'momentum', 'quality']
 
     selected_columns = list({col for cols in factor_columns.values() for col in cols})
     
@@ -809,8 +797,8 @@ def update_regression_output(n_clicks, risk_metrics, momentum_metrics, quality_m
             f"Selected Factor Groups:",
         ]
         
-        for group, columns in factor_columns.items():
-            metrics_list = locals()[f"{group.lower()}_metrics"]
+        for group in factor_columns:
+            metrics_list = group_to_metrics.get(group.lower(), [])
             if metrics_list:
                 result_parts.append(f"- {group}: {', '.join(metrics_list)}")
             
