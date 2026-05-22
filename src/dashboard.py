@@ -981,15 +981,11 @@ def update_regression_output(n_clicks, risk_metrics, momentum_metrics, quality_m
     selected_columns = list(set(selected_columns))
     
     try:
-        # Build X matrix with selected columns and add constant
-        X = df[selected_columns].copy()
-        X = sm.add_constant(X)  # Add constant for intercept
-        
-        # Define y as peRatio
+        # Build the design matrix with the selected columns and add an intercept term.
+        design_matrix = sm.add_constant(df[selected_columns].copy())
         y = df['PE']
-        
-        # Run OLS regression
-        model = sm.OLS(y, X).fit()
+
+        model = sm.OLS(y, design_matrix).fit()
         
         # Create a custom summary to better show the selected factors
         result_parts = [
@@ -1471,4 +1467,4 @@ def analyze_individual_stock(n_clicks, ticker):
         return {}, {}, None, error_message
 
 if __name__ == '__main__':
-    app.run(debug=False, port=int(os.getenv('PORT', '8050')), host='0.0.0.0')
+    app.run(debug=False, port=os.getenv('PORT', '8050'), host='0.0.0.0')
