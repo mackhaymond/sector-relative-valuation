@@ -23,7 +23,7 @@ Mispricings surface as the deviation between a company's actual P/E and its sect
 
 ## Tech stack
 
-Python 3.12, managed with Poetry. Pinned versions from `pyproject.toml`:
+Python 3.12, managed with [uv](https://github.com/astral-sh/uv). Pinned versions from `pyproject.toml`:
 
 - `pandas ^2.2.3`, `numpy ^2.1.3`, `scipy ^1.14.1`, `statsmodels ^0.14.4` — data handling and regression
 - `scikit-learn ^1.5.2` — Ridge regression and standardization
@@ -54,13 +54,13 @@ Containerized via a multi-stage `Dockerfile`. Data refresh runs in GitHub Action
 
 ## Running locally
 
-Prerequisites: Python 3.12, Poetry.
+Prerequisites: Python 3.12, [uv](https://github.com/astral-sh/uv).
 
 ```sh
-poetry install
-poetry run python src/data.py              # refresh the dataset (rate-limited Yahoo calls; takes minutes)
-poetry run python src/generate_weights.py  # fit per-sector Ridge weights
-poetry run python src/dashboard.py         # serve dashboard on http://localhost:8050
+uv sync
+uv run python src/data.py              # refresh the dataset (rate-limited Yahoo calls; takes minutes)
+uv run python src/generate_weights.py  # fit per-sector Ridge weights
+uv run python src/dashboard.py         # serve dashboard on http://localhost:8050
 ```
 
 To run the prebuilt container:
