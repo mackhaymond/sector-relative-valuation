@@ -12,7 +12,7 @@ Mispricings surface as the deviation between a company's actual P/E and its sect
 
 ## Methodology
 
-- **Coverage:** ~470 stocks across 11 GICS sectors (basic-materials, communication-services, consumer-cyclical, consumer-defensive, energy, financial-services, healthcare, industrials, real-estate, technology, utilities).
+- **Coverage:** the full Russell 1000 (~1,000 stocks, currently 1,002) across 11 GICS sectors (basic-materials, communication-services, consumer-cyclical, consumer-defensive, energy, financial-services, healthcare, industrials, real-estate, technology, utilities). Constituent list lives in `data/russell1000.csv`.
 - **Factor universe:** 8 factor categories defined in `src/data.py` (Risk, Momentum, Quality, Value, Size, Growth, Profitability, Liquidity), each composed of 3 underlying metrics — 24 metrics total are collected.
 - **Current model:** 3 of the 8 factor groups (Risk, Momentum, Quality) are wired into the regression. The remaining 5 are collected and exposed in the dashboard's Factor Selection tab as a scaffold for future iterations; they are not yet weighted in the production fit.
 - **Normalization:** every underlying metric is z-scored *within* its sector before being averaged into a factor composite. This avoids the cross-sector contamination that motivated the project.
@@ -76,7 +76,7 @@ The repo ships with a recent `sector_analysis.csv` and `weights.csv` so the dash
 ## Limitations and known gaps
 
 - **No formal backtest.** The model is fit cross-sectionally on a single snapshot of fundamentals; predicted-vs-actual P/E deviation has not been validated as a forward-return signal. There is no holdout, walk-forward, or transaction-cost analysis. Treat all output as descriptive, not prescriptive.
-- **Coverage is curated.** ~470 tickers across 11 sectors — a hand-picked sample of large constituents, not the full sector membership. Conclusions do not generalize to small caps or international names not in the list.
+- **Coverage is the Russell 1000.** ~1,000 large- and mid-cap US-listed names across 11 sectors. Conclusions do not generalize to small caps, micro caps, or international names that are not Russell constituents.
 - **R² varies materially by sector.** The within-sector linear fit between composite z-score and P/E is informative in some sectors and weak in others. The dashboard displays the R² per sector so this is visible at a glance rather than buried.
 - **Only 3 of 8 factor groups are weighted.** Value, Size, Growth, Profitability, and Liquidity are collected and exposed in the UI but not yet incorporated into the Ridge fit.
 - **Single data source.** Yahoo Finance is the only feed; fundamentals are point-in-time as scraped, with no PIT correction or restatement handling.

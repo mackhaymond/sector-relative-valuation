@@ -282,33 +282,40 @@ async def process_companies_async(companies: List[str], all_metrics: Dict[str, s
     
     return company_data_list
 
+# Russell 1000 constituents + GICS sector slugs are loaded once at import
+# time from the committed CSV at data/russell1000.csv. The path is relative
+# to the repository root because the GHA refresh and the local dashboard
+# both run from that working directory.
+_RUSSELL_1000_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "data", "russell1000.csv",
+)
+_russell_1000_by_sector: Optional[Dict[str, List[str]]] = None
+
+
+def _load_russell_1000() -> Dict[str, List[str]]:
+    """Read data/russell1000.csv once and group its tickers by sector slug."""
+    global _russell_1000_by_sector
+    if _russell_1000_by_sector is not None:
+        return _russell_1000_by_sector
+    df = pd.read_csv(_RUSSELL_1000_PATH)
+    grouped: Dict[str, List[str]] = {}
+    for ticker, sector in zip(df["Ticker"].astype(str), df["Sector"].astype(str)):
+        grouped.setdefault(sector, []).append(ticker)
+    _russell_1000_by_sector = grouped
+    return _russell_1000_by_sector
+
+
 async def get_sector_companies(sector: str) -> List[str]:
-    """Get companies for a given sector."""
-    # Hard-coded mapping of sectors to representative companies
-    # In a real-world implementation, this would be fetched from an API or database
-    sector_companies = {
-        "basic-materials": ["BHP", "RIO", "VALE", "NEM", "ECL", "SHW", "APD", "LIN", "SCCO", "FCX", "NUE", "MLM", "ALB", "AXTA", "DOW", "DD"],
-        "communication-services": ["GOOGL", "META", "DIS", "NFLX", "CMCSA", "VZ", "T", "TMUS", "ATVI", "EA", "TWTR", "SNAP", "SPOT", "PINS"],
-        "consumer-cyclical": ["AMZN", "TSLA", "HD", "MCD", "NKE", "SBUX", "TM", "BABA", "EBAY", "ETSY", "LOW", "TJX", "GM", "F"],
-        "consumer-defensive": ["WMT", "PG", "KO", "PEP", "COST", "PM", "MO", "EL", "CL", "GIS", "K", "KHC", "HSY", "KR"],
-        "energy": ["XOM", "CVX", "RDS-A", "BP", "TTE", "COP", "SLB", "EOG", "MPC", "PSX", "VLO", "OXY", "KMI", "WMB"],
-        "financial-services": ["BRK-B", "JPM", "V", "MA", "BAC", "WFC", "C", "MS", "GS", "AXP", "SCHW", "BLK", "CB", "PGR"],
-        "healthcare": ["JNJ", "UNH", "PFE", "MRK", "ABBV", "LLY", "ABT", "TMO", "DHR", "MDT", "AMGN", "BMY", "ISRG", "GILD"],
-        "industrials": ["HON", "UNP", "UPS", "BA", "RTX", "CAT", "DE", "GE", "MMM", "LMT", "GD", "EMR", "ETN", "CMI"],
-        "real-estate": ["AMT", "PLD", "CCI", "EQIX", "PSA", "O", "DLR", "AVB", "EQR", "SPG", "WELL", "VTR", "ARE", "BXP"],
-        "technology": ["AAPL", "MSFT", "NVDA", "TSM", "AVGO", "CSCO", "ORCL", "ADBE", "CRM", "ACN", "IBM", "INTC", "AMD", "MU"],
-        "utilities": ["NEE", "DUK", "SO", "D", "AEP", "EXC", "SRE", "XEL", "ED", "ES", "WEC", "DTE", "ETR", "FE"]
-    }
-    
+    """Return Russell 1000 tickers for the requested GICS sector slug."""
     try:
-        # Return companies for the given sector
-        if sector in sector_companies:
-            return sector_companies[sector]
-        else:
-            print(f"No predefined companies for sector {sector}")
-            return []
+        by_sector = _load_russell_1000()
+        if sector in by_sector:
+            return list(by_sector[sector])
+        print(f"No companies found for sector {sector}")
+        return []
     except Exception as e:
-        print(f"Error getting companies for sector {sector}: {e}")
+        print(f"Error loading sector companies for {sector}: {e}")
         return []
 
 async def process_sector_async(
