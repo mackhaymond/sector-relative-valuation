@@ -18,8 +18,8 @@ COPY pyproject.toml uv.lock ./
 
 # uv sync writes the venv to /app/.venv by default. --frozen requires the
 # lockfile to be up-to-date; --no-dev skips the dev dependency group;
-# --no-install-project skips installing this project itself (matches the
-# previous `poetry install --no-root` semantics).
+# --no-install-project skips installing this project as a package since
+# it runs as a script via `python src/dashboard.py`.
 ENV UV_LINK_MODE=copy \
     UV_COMPILE_BYTECODE=1
 RUN uv sync --frozen --no-dev --no-install-project

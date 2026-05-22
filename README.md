@@ -48,7 +48,8 @@ Containerized via a multi-stage `Dockerfile`. Data refresh runs in GitHub Action
 ├── weights.csv              # Per-sector Ridge-derived factor weights
 ├── Dockerfile               # Multi-stage build, non-root runtime
 ├── jobspec.nomad.hcl        # Nomad deployment spec
-├── pyproject.toml           # Poetry-managed dependencies
+├── pyproject.toml           # uv-managed dependencies and project metadata
+├── uv.lock                  # locked dependency graph
 └── .github/workflows/       # CI: Docker publish + scheduled data refresh
 ```
 
