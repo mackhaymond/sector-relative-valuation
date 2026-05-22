@@ -4,8 +4,9 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
+
 permissions:
-  contents: write
+  contents: read
 
 env:
   REGISTRY: ghcr.io
@@ -54,20 +55,6 @@ jobs:
           cache-to: type=gha,mode=max
           platforms: linux/amd64
 
-      - name: Tailscale
-        uses: tailscale/github-action@v3
-        with:
-          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ secrets.TS_OAUTH_CLIENT_SECRET }}
-          tags: tag:ci
-
-      - name: Setup Nomad
-        uses: hashicorp/setup-nomad@main
-        with:
-          version: latest
-
-      - name: Push to Nomad
-        run: nomad job run jobspec.nomad.hcl
-        env:
-          NOMAD_VAR_image_tag: sha-${{ github.sha }}
-          NOMAD_ADDR: ${{ secrets.NOMAD_ADDR }}
+      # Deployment step removed: the prior self-hosted Nomad target was
+      # decommissioned. Re-add a deploy step here when a new runtime
+      # (Fly.io, Render, Cloud Run, ECS, etc.) is chosen.
