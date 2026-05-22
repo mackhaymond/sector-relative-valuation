@@ -51,13 +51,6 @@ X3_QUALITY_METRICS = {
     "OperatingMargin": "operatingMargins"   # Operating efficiency
 }
 
-# Category 4: Value Metrics
-X4_VALUE_METRICS = {
-    "PriceToBook": "priceToBook",           # Price to Book ratio
-    "EvToEbitda": "evToEbitda",             # EV to EBITDA ratio
-    "PriceToSales": "priceToSales"          # Price to Sales ratio
-}
-
 # Category 5: Size Metrics
 X5_SIZE_METRICS = {
     "MarketCap": "marketCap",               # Market Capitalization
@@ -79,12 +72,9 @@ X7_PROFITABILITY_METRICS = {
     "NetProfitMargin": "netProfitMargin"    # Net Profit Margin
 }
 
-# Category 8: Liquidity Metrics
-X8_LIQUIDITY_METRICS = {
-    "CurrentRatio": "currentRatio",         # Current Ratio
-    "QuickRatio": "quickRatio",             # Quick Ratio
-    "InterestCoverage": "interestCoverage"  # Interest Coverage
-}
+# X4 and X8 identifiers are intentionally absent. The category numbers
+# are stable across the codebase; renumbering the survivors would
+# silently rewrite csv column orderings and dashboard wiring.
 
 # Dependent Variable (Y) for Regression
 Y_VALUATION_METRIC = {
@@ -100,11 +90,9 @@ ALL_METRICS = {
     **X1_RISK_METRICS,
     **X2_MOMENTUM_METRICS,
     **X3_QUALITY_METRICS,
-    **X4_VALUE_METRICS,
     **X5_SIZE_METRICS,
     **X6_GROWTH_METRICS,
     **X7_PROFITABILITY_METRICS,
-    **X8_LIQUIDITY_METRICS,
     **Y_VALUATION_METRIC
 }
 
@@ -113,11 +101,9 @@ METRICS = {
     "x1_risk_metrics": X1_RISK_METRICS,                # X1 variable
     "x2_momentum_metrics": X2_MOMENTUM_METRICS,        # X2 variable
     "x3_quality_metrics": X3_QUALITY_METRICS,          # X3 variable
-    "x4_value_metrics": X4_VALUE_METRICS,              # X4 variable
     "x5_size_metrics": X5_SIZE_METRICS,                # X5 variable
     "x6_growth_metrics": X6_GROWTH_METRICS,            # X6 variable
     "x7_profitability_metrics": X7_PROFITABILITY_METRICS, # X7 variable
-    "x8_liquidity_metrics": X8_LIQUIDITY_METRICS,      # X8 variable
     "y_valuation_metric": Y_VALUATION_METRIC,          # Y variable
     "all_metrics": ALL_METRICS
 }
