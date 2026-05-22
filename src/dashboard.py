@@ -266,11 +266,6 @@ app.layout = html.Div([
                                     {'label': 'Risk', 'value': 'risk'},
                                     {'label': 'Momentum', 'value': 'momentum'},
                                     {'label': 'Quality', 'value': 'quality'},
-                                    {'label': 'Value', 'value': 'value'},
-                                    {'label': 'Size', 'value': 'size'},
-                                    {'label': 'Growth', 'value': 'growth'},
-                                    {'label': 'Profitability', 'value': 'profitability'},
-                                    {'label': 'Liquidity', 'value': 'liquidity'},
                                 ],
                                 value=['risk', 'momentum', 'quality'],
                                 labelStyle={'display': 'block', 'margin': '10px 0', 'fontWeight': 'bold'}
@@ -318,83 +313,11 @@ app.layout = html.Div([
                                 labelStyle={'display': 'block', 'marginLeft': '20px'}
                             ),
                         ], style={'marginBottom': '15px'}),
-                        
-                        # Value Metrics
-                        html.Div([
-                            dcc.Checklist(
-                                id='value-checklist',
-                                options=[
-                                    {'label': 'Price To Book', 'value': 'PriceToBook'},
-                                    {'label': 'EV To EBITDA', 'value': 'EvToEbitda'},
-                                    {'label': 'Price To Sales', 'value': 'PriceToSales'},
-                                ],
-                                value=[],
-                                labelStyle={'display': 'block', 'marginLeft': '20px'}
-                            ),
-                        ], style={'marginBottom': '15px'}),
-                        
-                        # Size Metrics
-                        html.Div([
-                            dcc.Checklist(
-                                id='size-checklist',
-                                options=[
-                                    {'label': 'Market Cap', 'value': 'MarketCap'},
-                                    {'label': 'Total Assets', 'value': 'TotalAssets'},
-                                    {'label': 'Enterprise Value', 'value': 'EnterpriseValue'},
-                                ],
-                                value=[],
-                                labelStyle={'display': 'block', 'marginLeft': '20px'}
-                            ),
-                        ], style={'marginBottom': '15px'}),
-                        
-                        # Growth Metrics
-                        html.Div([
-                            dcc.Checklist(
-                                id='growth-checklist',
-                                options=[
-                                    {'label': 'Revenue Growth', 'value': 'RevenueGrowth'},
-                                    {'label': 'EPS Growth', 'value': 'EpsGrowth'},
-                                    {'label': 'Cash Flow Growth', 'value': 'CashFlowGrowth'},
-                                ],
-                                value=[],
-                                labelStyle={'display': 'block', 'marginLeft': '20px'}
-                            ),
-                        ], style={'marginBottom': '15px'}),
-                        
-                        # Profitability Metrics
-                        html.Div([
-                            dcc.Checklist(
-                                id='profitability-checklist',
-                                options=[
-                                    {'label': 'Gross Margin', 'value': 'GrossMargin'},
-                                    {'label': 'EBITDA Margin', 'value': 'EbitdaMargin'},
-                                    {'label': 'Net Profit Margin', 'value': 'NetProfitMargin'},
-                                ],
-                                value=[],
-                                labelStyle={'display': 'block', 'marginLeft': '20px'}
-                            ),
-                        ], style={'marginBottom': '15px'}),
-                        
-                        # Liquidity Metrics
-                        html.Div([
-                            dcc.Checklist(
-                                id='liquidity-checklist',
-                                options=[
-                                    {'label': 'Current Ratio', 'value': 'CurrentRatio'},
-                                    {'label': 'Quick Ratio', 'value': 'QuickRatio'},
-                                    {'label': 'Interest Coverage', 'value': 'InterestCoverage'},
-                                ],
-                                value=[],
-                                labelStyle={'display': 'block', 'marginLeft': '20px'}
-                            ),
-                        ], style={'marginBottom': '15px'}),
                     ], style={'flex': '1', 'minWidth': '300px'}),
                     
                     # Regression Output
                     html.Div([
                         html.H3('Regression Results', style=STYLES['subtitle']),
-                        html.P("Simulator: This UI demonstrates how the feature will work once metrics data is added. Currently using aggregate scores as proxies.", 
-                            style={'fontSize': '12px', 'fontStyle': 'italic', 'marginBottom': '10px'}),
                         html.Button(
                             'Recalculate Regression',
                             id='recalculate-button',
@@ -794,122 +717,42 @@ def update_graph(selected_sector, selected_company):
     
     return fig, company_info
 
-# Define factor group mapping
-FACTOR_GROUPS = {
-    'risk': {
-        'name': 'Risk',
-        'checklist_id': 'risk-checklist',
-        'metrics': X1_RISK_METRICS
-    },
-    'momentum': {
-        'name': 'Momentum',
-        'checklist_id': 'momentum-checklist',
-        'metrics': X2_MOMENTUM_METRICS
-    },
-    'quality': {
-        'name': 'Quality',
-        'checklist_id': 'quality-checklist',
-        'metrics': X3_QUALITY_METRICS
-    },
-    'value': {
-        'name': 'Value',
-        'checklist_id': 'value-checklist',
-        'metrics': X4_VALUE_METRICS
-    },
-    'size': {
-        'name': 'Size',
-        'checklist_id': 'size-checklist',
-        'metrics': X5_SIZE_METRICS
-    },
-    'growth': {
-        'name': 'Growth',
-        'checklist_id': 'growth-checklist',
-        'metrics': X6_GROWTH_METRICS
-    },
-    'profitability': {
-        'name': 'Profitability',
-        'checklist_id': 'profitability-checklist',
-        'metrics': X7_PROFITABILITY_METRICS
-    },
-    'liquidity': {
-        'name': 'Liquidity',
-        'checklist_id': 'liquidity-checklist',
-        'metrics': X8_LIQUIDITY_METRICS
-    }
-}
-
 # Callbacks for Factor Selection tab
 @app.callback(
     [Output('risk-checklist', 'style'),
      Output('momentum-checklist', 'style'),
-     Output('quality-checklist', 'style'),
-     Output('value-checklist', 'style'),
-     Output('size-checklist', 'style'),
-     Output('growth-checklist', 'style'),
-     Output('profitability-checklist', 'style'),
-     Output('liquidity-checklist', 'style')],
+     Output('quality-checklist', 'style')],
     [Input('factor-group-checklist', 'value')]
 )
 def toggle_factor_checklists(selected_groups):
-    # Default style - hidden
     hidden_style = {'display': 'none', 'marginBottom': '15px'}
-    # Visible style
     visible_style = {'marginBottom': '15px'}
-    
-    # If no groups selected, default to risk, momentum, quality
+
     if not selected_groups:
         selected_groups = ['risk', 'momentum', 'quality']
-    
-    # Set visibility for each group
-    styles = []
-    for group in ['risk', 'momentum', 'quality', 'value', 'size', 'growth', 'profitability', 'liquidity']:
-        if group in selected_groups:
-            styles.append(visible_style)
-        else:
-            styles.append(hidden_style)
-            
-    return styles
+
+    return [
+        visible_style if group in selected_groups else hidden_style
+        for group in ('risk', 'momentum', 'quality')
+    ]
 
 @app.callback(
     [Output('risk-checklist', 'value'),
      Output('momentum-checklist', 'value'),
-     Output('quality-checklist', 'value'),
-     Output('value-checklist', 'value'),
-     Output('size-checklist', 'value'),
-     Output('growth-checklist', 'value'),
-     Output('profitability-checklist', 'value'),
-     Output('liquidity-checklist', 'value')],
+     Output('quality-checklist', 'value')],
     [Input('factor-group-checklist', 'value')]
 )
 def reset_checklist_values(selected_groups):
-    # Default empty value
-    empty_value = []
-    
-    # If no groups selected, default to risk, momentum, quality
     if not selected_groups:
         selected_groups = ['risk', 'momentum', 'quality']
-    
-    # Default selections for the base groups
+
     defaults = {
         'risk': list(X1_RISK_METRICS.keys()),
         'momentum': list(X2_MOMENTUM_METRICS.keys()),
         'quality': list(X3_QUALITY_METRICS.keys()),
-        'value': empty_value,
-        'size': empty_value,
-        'growth': empty_value,
-        'profitability': empty_value,
-        'liquidity': empty_value
     }
-    
-    # Return default values for each checklist based on selection
-    values = []
-    for group in ['risk', 'momentum', 'quality', 'value', 'size', 'growth', 'profitability', 'liquidity']:
-        if group in selected_groups:
-            values.append(defaults[group])
-        else:
-            values.append(empty_value)
-            
-    return values
+
+    return [defaults[group] if group in selected_groups else [] for group in ('risk', 'momentum', 'quality')]
 
 
 # Callback for the Recalculate button to update regression
@@ -919,69 +762,37 @@ def reset_checklist_values(selected_groups):
     [State('risk-checklist', 'value'),
      State('momentum-checklist', 'value'),
      State('quality-checklist', 'value'),
-     State('value-checklist', 'value'),
-     State('size-checklist', 'value'),
-     State('growth-checklist', 'value'),
-     State('profitability-checklist', 'value'),
-     State('liquidity-checklist', 'value'),
      State('factor-group-checklist', 'value')]
 )
-def update_regression_output(n_clicks, risk_metrics, momentum_metrics, quality_metrics, 
-                            value_metrics, size_metrics, growth_metrics, 
-                            profitability_metrics, liquidity_metrics, selected_groups):
+def update_regression_output(n_clicks, risk_metrics, momentum_metrics, quality_metrics, selected_groups):
     import statsmodels.api as sm
-    
-    # If no groups selected, default to risk, momentum, quality
+
     if not selected_groups:
         selected_groups = ['risk', 'momentum', 'quality']
-        
-    # Check if all metrics are empty, then use defaults
-    all_empty = not any([risk_metrics, momentum_metrics, quality_metrics, 
-                         value_metrics, size_metrics, growth_metrics, 
-                         profitability_metrics, liquidity_metrics])
-    
-    if all_empty:
-        risk_metrics = list(X1_RISK_METRICS.keys()) if 'risk' in selected_groups else []
-        momentum_metrics = list(X2_MOMENTUM_METRICS.keys()) if 'momentum' in selected_groups else []
-        quality_metrics = list(X3_QUALITY_METRICS.keys()) if 'quality' in selected_groups else []
-    
-    # For the mock implementation, we'll use Risk_Score, Momentum_Score, and Quality_Score
-    # as representatives for each factor group
-    
-    # Collect all selected metrics by group
-    factor_columns = {}
-    if 'risk' in selected_groups and risk_metrics:
-        factor_columns['Risk'] = ['Risk_Score']  # In a real implementation, this would be risk_metrics
-    if 'momentum' in selected_groups and momentum_metrics:
-        factor_columns['Momentum'] = ['Momentum_Score']  # In a real implementation, this would be momentum_metrics
-    if 'quality' in selected_groups and quality_metrics:
-        factor_columns['Quality'] = ['Quality_Score']  # In a real implementation, this would be quality_metrics
-    if 'value' in selected_groups and value_metrics:
-        factor_columns['Value'] = ['Risk_Score']  # Placeholder - in a real implementation, this would be value_metrics
-    if 'size' in selected_groups and size_metrics:
-        factor_columns['Size'] = ['Momentum_Score']  # Placeholder - in a real implementation, this would be size_metrics  
-    if 'growth' in selected_groups and growth_metrics:
-        factor_columns['Growth'] = ['Quality_Score']  # Placeholder - in a real implementation, this would be growth_metrics
-    if 'profitability' in selected_groups and profitability_metrics:
-        factor_columns['Profitability'] = ['Risk_Score']  # Placeholder - in a real implementation, this would be profitability_metrics
-    if 'liquidity' in selected_groups and liquidity_metrics:
-        factor_columns['Liquidity'] = ['Momentum_Score']  # Placeholder - in a real implementation, this would be liquidity_metrics
-    
-    # If no metrics selected or all groups empty, use defaults
+
+    # The composites in sector_analysis.csv are pre-computed averages of
+    # all underlying metrics in each group; the per-metric checklists are
+    # purely informational. Each selected group contributes its single
+    # composite column to the OLS design matrix.
+    group_to_column = {
+        'risk': 'Risk_Score',
+        'momentum': 'Momentum_Score',
+        'quality': 'Quality_Score',
+    }
+    factor_columns = {
+        group.capitalize(): [group_to_column[group]]
+        for group in ('risk', 'momentum', 'quality')
+        if group in selected_groups
+    }
+
     if not factor_columns:
         factor_columns = {
             'Risk': ['Risk_Score'],
             'Momentum': ['Momentum_Score'],
-            'Quality': ['Quality_Score']
+            'Quality': ['Quality_Score'],
         }
-    
-    # Flatten the list of columns
-    selected_columns = []
-    for group, columns in factor_columns.items():
-        selected_columns.extend(columns)
-    
-    # Remove duplicates
-    selected_columns = list(set(selected_columns))
+
+    selected_columns = list({col for cols in factor_columns.values() for col in cols})
     
     try:
         # Build the design matrix with the selected columns and add an intercept term.
