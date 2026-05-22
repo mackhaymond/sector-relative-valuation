@@ -26,6 +26,21 @@ from data import (
     calculate_max_drawdown,
 )
 
+def _r2_annotation(r_squared, r_squared_available):
+    """Return (text, color, subtitle) for the R² annotation, color-coded
+    by fit quality so a reader cannot miss a sector with an unreliable fit.
+    """
+    if not r_squared_available:
+        return ('R² = N/A (insufficient variance)', COLORS['secondary'],
+                'Low R² indicates the fit is unreliable for this sector.')
+    if r_squared < 0.1:
+        return (f'R² = {r_squared:.3f}', COLORS['secondary'],
+                'Low R² indicates the fit is unreliable for this sector.')
+    if r_squared < 0.3:
+        return (f'R² = {r_squared:.3f}', '#d97706', None)
+    return (f'R² = {r_squared:.3f}', COLORS['text'], None)
+
+
 # GICS Sector Mapping
 GICS_SECTOR_MAPPING = {
     "basic-materials": "Materials",
@@ -518,15 +533,19 @@ def update_graph(selected_sector, selected_company):
         line=dict(color=COLORS['secondary'], dash='dash', width=2)
     ))
     
-    # Add equation and R² annotation
+    # Add equation and R² annotation, color-coded by fit quality so a low
+    # R² doesn't blend into the chart styling.
     equation = f'y = {fit[0]:.2f}x + {fit[1]:.2f}'
-    r2_text = f'R² = {r_squared:.3f}' if r_squared_available else 'R² = N/A (insufficient variance)'
+    r2_text, r2_color, r2_subtitle = _r2_annotation(r_squared, r_squared_available)
+    body_lines = [equation, f'<span style="color:{r2_color}">{r2_text}</span>']
+    if r2_subtitle:
+        body_lines.append(f'<span style="color:{r2_color};font-size:10px">{r2_subtitle}</span>')
     fig.add_annotation(
         x=0.02,
         y=0.98,
         xref='paper',
         yref='paper',
-        text=f'{equation}<br>{r2_text}',
+        text='<br>'.join(body_lines),
         showarrow=False,
         font=dict(family=FONT_FAMILY, size=12),
         bgcolor='rgba(255,255,255,0.8)',
@@ -534,7 +553,7 @@ def update_graph(selected_sector, selected_company):
         borderwidth=1,
         align='left'
     )
-    
+
     # Highlight selected company
     company_info = None
     if selected_company and not filtered_df[filtered_df['Ticker'] == selected_company].empty:
@@ -1022,15 +1041,17 @@ def analyze_individual_stock(n_clicks, ticker):
 
         pe_deviation = actual_pe - predicted_pe
         
-        # Add equation and R² annotation
         equation = f'y = {fit[0]:.2f}x + {fit[1]:.2f}'
-        r2_text = f'R² = {r_squared:.3f}' if r_squared_available else 'R² = N/A (insufficient variance)'
+        r2_text, r2_color, r2_subtitle = _r2_annotation(r_squared, r_squared_available)
+        body_lines = [equation, f'<span style="color:{r2_color}">{r2_text}</span>']
+        if r2_subtitle:
+            body_lines.append(f'<span style="color:{r2_color};font-size:10px">{r2_subtitle}</span>')
         fig.add_annotation(
             x=0.02,
             y=0.98,
             xref='paper',
             yref='paper',
-            text=f'{equation}<br>{r2_text}',
+            text='<br>'.join(body_lines),
             showarrow=False,
             font=dict(family=FONT_FAMILY, size=12),
             bgcolor='rgba(255,255,255,0.8)',
