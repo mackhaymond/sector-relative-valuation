@@ -21,11 +21,9 @@ from data import (
     X6_GROWTH_METRICS,
     X7_PROFITABILITY_METRICS,
     X8_LIQUIDITY_METRICS,
-    Y_VALUATION_METRIC,
-    ALL_METRICS,
     calculate_rsi,
     calculate_return_sd,
-    analyze_sectors_async
+    calculate_max_drawdown,
 )
 
 # GICS Sector Mapping
@@ -424,8 +422,12 @@ app.layout = html.Div([
 ], style=STYLES['container'])
 
 @lru_cache(maxsize=100)
-def get_historical_data(ticker, period="1y"):
-    """Cache historical data to avoid repeated requests."""
+def get_cached_history(ticker, period="1y"):
+    """Cache historical data to avoid repeated requests.
+
+    Named to disambiguate from the async ``data.get_historical_data``;
+    this is the sync, in-process lru-cached variant used by the dashboard.
+    """
     try:
         stock = yf.Ticker(ticker)
         time.sleep(2)  # Rate limiting delay
@@ -442,10 +444,10 @@ def get_stock_data_with_retry(ticker, max_retries=3, base_delay=2):
             stock = yf.Ticker(ticker)
             time.sleep(base_delay)  # Rate limiting delay
             info = stock.info
-            
+
             # Get historical data using cached function
-            hist = get_historical_data(ticker)
-            
+            hist = get_cached_history(ticker)
+
             return {
                 'info': info,
                 'history': hist
@@ -1015,7 +1017,7 @@ def update_regression_output(n_clicks, risk_metrics, momentum_metrics, quality_m
         
         for i, var_name in enumerate(model.params.index):
             result_parts.append(
-                f"{var_name}: {model.params[i]:.4f} (p={model.pvalues[i]:.4f})"
+                f"{var_name}: {model.params.iloc[i]:.4f} (p={model.pvalues.iloc[i]:.4f})"
             )
             
         # Add the full model summary at the end
@@ -1041,60 +1043,7 @@ def update_regression_output(n_clicks, risk_metrics, momentum_metrics, quality_m
 def analyze_individual_stock(n_clicks, ticker):
     if n_clicks is None or not ticker:
         return {}, {}, None, ''
-    
-    # Initial status message
-    status_message = f"Analyzing {ticker}..."
-    
-# Initialize regression results on page load - this runs when the page first loads
-@app.callback(
-    Output('reg-output', 'children'),
-    [Input('factor-group-checklist', 'value')],
-    [State('risk-checklist', 'value'),
-     State('momentum-checklist', 'value'),
-     State('quality-checklist', 'value')]
-)
-def initial_regression(selected_groups, risk_metrics, momentum_metrics, quality_metrics):
-    import statsmodels.api as sm
-    
-    # If no groups selected, default to risk, momentum, quality
-    if not selected_groups:
-        selected_groups = ['risk', 'momentum', 'quality']
-        
-    # Collect default metrics by group
-    selected_columns = []
-    if 'risk' in selected_groups:
-        selected_columns.append('Risk_Score')
-    if 'momentum' in selected_groups:
-        selected_columns.append('Momentum_Score')
-    if 'quality' in selected_groups:
-        selected_columns.append('Quality_Score')
-    
-    try:
-        # Build X matrix with selected columns and add constant
-        X = df[selected_columns].copy()
-        X = sm.add_constant(X)  # Add constant for intercept
-        
-        # Define y as peRatio
-        y = df['PE']
-        
-        # Run OLS regression
-        model = sm.OLS(y, X).fit()
-        
-        # Return simplified initial view
-        return f"""OLS Regression Results for PE Ratio prediction
-====================================
 
-Default factor groups are selected (Risk, Momentum, Quality).
-Click "Recalculate Regression" after making selections to update the model.
-
-R-squared: {model.rsquared:.4f}
-Adjusted R-squared: {model.rsquared_adj:.4f}
-"""
-    except Exception as e:
-        return f"Error in initial regression: {str(e)}"
-    
-    
-# Continue with the main function
     try:
         # Load sector data and weights
         sector_df = pd.read_csv('sector_analysis_full.csv')
@@ -1522,4 +1471,4 @@ Adjusted R-squared: {model.rsquared_adj:.4f}
         return {}, {}, None, error_message
 
 if __name__ == '__main__':
-    app.run_server(debug=False, port=os.getenv('PORT', 8050), host='0.0.0.0')
+    app.run(debug=False, port=int(os.getenv('PORT', '8050')), host='0.0.0.0')
