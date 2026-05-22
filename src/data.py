@@ -7,7 +7,7 @@ import time
 import asyncio
 import aiohttp
 import os
-from typing import Dict, List
+from typing import Any, Dict, List, Optional, Tuple
 
 #######################
 # MASTER VARIABLES
@@ -132,29 +132,46 @@ INDUSTRY_DELAY = 1.0  # seconds
 #######################
 
 def calculate_rsi(prices: pd.Series, periods: int = 30) -> float:
-    """Calculate the Relative Strength Index (RSI) for a given price series."""
+    """Calculate the Relative Strength Index (RSI) for a given price series.
+
+    Returns NaN if the series is too short to compute the rolling RSI."""
     # Calculate price differences
     delta = prices.diff()
-    
+
     # Separate gains and losses
     gain = (delta.where(delta > 0, 0)).rolling(window=periods).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=periods).mean()
-    
+
     # Calculate RS and RSI
     rs = gain / loss
     rsi = 100 - (100 / (1 + rs))
-    
-    return rsi.iloc[-1]
+
+    # Guard against the degenerate case where arithmetic collapses to a
+    # scalar (e.g. an empty input series). pd.Series arithmetic returns a
+    # Series in the common case, but the type system cannot prove that.
+    if not isinstance(rsi, pd.Series):
+        return float("nan")
+    if rsi.empty:
+        return float("nan")
+    last = rsi.iloc[-1]
+    if last is None or pd.isna(last):
+        return float("nan")
+    return float(last)
 
 def calculate_return_sd(prices: pd.Series, periods: int = 252) -> float:
     """Calculate the standard deviation of returns over the specified period."""
     # Calculate daily returns
     returns = prices.pct_change()
-    
+
     # Calculate the standard deviation of returns
     return_sd = returns.std()
-    
-    return return_sd
+
+    # `Series.std()` returns a scalar (or NaN). `pd.isna(scalar)` returns
+    # bool, but its stub is widened to bool|NDArray|NDFrame; coerce to bool
+    # so the conditional is well-typed.
+    if return_sd is None or bool(pd.isna(return_sd)):
+        return float("nan")
+    return float(return_sd)
 
 def calculate_max_drawdown(prices: pd.Series) -> float:
     """Calculate the maximum drawdown over the given price series."""
@@ -188,62 +205,65 @@ async def get_metric_async(session: aiohttp.ClientSession, ticker: str, metric_n
         try:
             await asyncio.sleep(REQUEST_DELAY)  # Rate limiting
             stock = yf.Ticker(ticker)
-            
+
             # Handle custom metrics that need calculation
-            if metric_name == "rsi":
+            if metric_name in ("rsi", "returnSD", "maxDrawdown"):
                 hist = await get_historical_data(ticker)
-                if not hist.empty:
-                    rsi = calculate_rsi(hist['Close'])
+                if hist.empty:
+                    return float("nan")
+                close = hist['Close']
+                if not isinstance(close, pd.Series):
+                    return float("nan")
+                if metric_name == "rsi":
+                    rsi = calculate_rsi(close)
                     print(f"{metric_name}: {rsi}")
                     return rsi
-                return float("nan")
-                
-            elif metric_name == "returnSD":
-                hist = await get_historical_data(ticker)
-                if not hist.empty:
-                    sd = calculate_return_sd(hist['Close'])
+                elif metric_name == "returnSD":
+                    sd = calculate_return_sd(close)
                     print(f"{metric_name}: {sd}")
                     return sd
-                return float("nan")
-                
-            elif metric_name == "maxDrawdown":
-                hist = await get_historical_data(ticker)
-                if not hist.empty:
-                    max_drawdown = calculate_max_drawdown(hist['Close'])
+                elif metric_name == "maxDrawdown":
+                    max_drawdown = calculate_max_drawdown(close)
                     print(f"{metric_name}: {max_drawdown}")
                     return max_drawdown
-                return float("nan")
-                
-            # Handle standard yfinance metrics
+
+            # Handle standard yfinance metrics. yfinance occasionally returns
+            # non-numeric values (e.g. None, strings) so coerce defensively to
+            # honor the declared float contract.
             value = stock.info.get(metric_name)
             print(f"{metric_name}: {value}")
-            return value if value is not None else float("nan")
-            
+            if value is None:
+                return float("nan")
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return float("nan")
+
         except Exception as e:
             print(f"Error fetching {metric_name} for {ticker}: {e}")
             return float("nan")
 
-async def get_company_metrics_async(session: aiohttp.ClientSession, company: str, 
-                                 all_metrics: Dict[str, str]) -> Dict:
+async def get_company_metrics_async(session: aiohttp.ClientSession, company: str,
+                                 all_metrics: Dict[str, str]) -> Dict[str, Any]:
     """Get all metrics for a single company asynchronously."""
-    company_data = {"Ticker": company}
-    
+    company_data: Dict[str, Any] = {"Ticker": company}
+
     # Create tasks for all metrics
     tasks = [
         get_metric_async(session, company, yf_metric)
         for metric_name, yf_metric in all_metrics.items()
     ]
-    
+
     # Wait for all metrics to be fetched
     results = await asyncio.gather(*tasks)
-    
+
     # Add results to company data
     for (metric_name, _), value in zip(all_metrics.items(), results):
         company_data[metric_name] = value
-    
+
     return company_data
 
-async def process_companies_async(companies: List[str], all_metrics: Dict[str, str]) -> List[Dict]:
+async def process_companies_async(companies: List[str], all_metrics: Dict[str, str]) -> List[Dict[str, Any]]:
     """Process a batch of companies asynchronously."""
     async with aiohttp.ClientSession() as session:
         tasks = []
@@ -291,28 +311,34 @@ async def get_sector_companies(sector: str) -> List[str]:
         print(f"Error getting companies for sector {sector}: {e}")
         return []
 
-async def process_sector_async(sector: str, metrics: Dict[str, Dict[str, str]]) -> pd.DataFrame:
-    """Process a single sector asynchronously."""
+async def process_sector_async(
+    sector: str, metrics: Dict[str, Dict[str, str]]
+) -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame]]:
+    """Process a single sector asynchronously.
+
+    Returns a (full_df, simple_df) tuple. Either or both may be ``None``
+    when the sector had no companies, no data, or raised during processing.
+    """
     try:
         companies = await get_sector_companies(sector)
-        
+
         if not companies:
             print(f"No companies found for sector {sector}")
             return None, None
-            
+
         # Get raw data
         company_data_list = await process_companies_async(companies, metrics["all_metrics"])
-        
+
         # Convert to DataFrame
         df = pd.DataFrame(company_data_list)
-        
-        if df is None or df.empty:
+
+        if df.empty:
             print(f"No data available for sector {sector}")
             return None, None
-            
+
         # Add sector column before processing
         df["Sector"] = sector
-        
+
         # Process data
         full_df, simple_df = await process_data(df, metrics)
         return full_df, simple_df
@@ -320,12 +346,15 @@ async def process_sector_async(sector: str, metrics: Dict[str, Dict[str, str]]) 
         print(f"Error processing sector {sector}: {e}")
         return None, None
 
-async def process_data(df: pd.DataFrame, metrics: Dict[str, Dict[str, str]]) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Process the collected data by calculating z-scores and composite scores"""
+async def process_data(
+    df: pd.DataFrame, metrics: Dict[str, Dict[str, str]]
+) -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame]]:
+    """Process the collected data by calculating z-scores and composite scores."""
     if df.empty:
         print("No data was collected successfully.")
-        return None
-    
+        return None, None
+
+
     # Calculate z-scores for each metric group
     for metric_group in ["x1_risk_metrics", "x2_momentum_metrics", "x3_quality_metrics"]:
         for metric_name in metrics[metric_group].keys():
@@ -352,23 +381,34 @@ async def process_data(df: pd.DataFrame, metrics: Dict[str, Dict[str, str]]) -> 
     mask = (abs(df["Risk_Score"]) <= 2.5) & \
            (abs(df["Momentum_Score"]) <= 2.5) & \
            (abs(df["Quality_Score"]) <= 2.5) & \
-           (abs(df["PE_ZScore"]) <= 2.5)  
-    df = df[mask]
+           (abs(df["PE_ZScore"]) <= 2.5)
+    df_filtered = df[mask]
+    # df[boolean_mask] returns a DataFrame in this context; narrow for pyright.
+    assert isinstance(df_filtered, pd.DataFrame)
+    df = df_filtered
     
     # Keep only essential columns
     columns_to_keep = ["Sector", "Ticker", "Risk_Score", "Momentum_Score", "Quality_Score"]
     if "PE" in df.columns:
         columns_to_keep.extend(["PE", "PE_ZScore"])
-    
-    simple_df = df[columns_to_keep]
-    
+
+    simple_df_raw = df[columns_to_keep]
+    # df[list_of_str_columns] semantically always returns a DataFrame, but
+    # pyright's pandas stubs widen the result type. Narrow explicitly.
+    assert isinstance(simple_df_raw, pd.DataFrame)
+    simple_df = simple_df_raw.copy()
+
     return df, simple_df
 
-async def analyze_sectors_async(sectors: List[str] = SECTORS) -> pd.DataFrame:
-    """Analyze multiple sectors with controlled concurrency."""
-    all_data = []
-    all_data_full = []
-    
+async def analyze_sectors_async(sectors: List[str] = SECTORS) -> Optional[pd.DataFrame]:
+    """Analyze multiple sectors with controlled concurrency.
+
+    Returns the combined simplified per-ticker DataFrame, or ``None`` if no
+    sector produced any data.
+    """
+    all_data: List[pd.DataFrame] = []
+    all_data_full: List[pd.DataFrame] = []
+
     for sector in tqdm(sectors, desc="Processing sectors"):
         await asyncio.sleep(INDUSTRY_DELAY)  # Rate limiting between sectors
         full_data, simple_data = await process_sector_async(sector, METRICS)
@@ -376,15 +416,15 @@ async def analyze_sectors_async(sectors: List[str] = SECTORS) -> pd.DataFrame:
             all_data.append(simple_data)
         if full_data is not None:
             all_data_full.append(full_data)
-    
+
     if not all_data:
         print("No data was collected successfully.")
         return None
-    
+
     # Combine all sector data
     combined_data = pd.concat(all_data, ignore_index=True)
     combined_data_full = pd.concat(all_data_full, ignore_index=True)
-    
+
     # Save to CSV
     combined_data.to_csv("sector_analysis.csv", index=False)
     combined_data_full.to_csv("sector_analysis_full.csv", index=False)
