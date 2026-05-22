@@ -1,9 +1,11 @@
 [tool.poetry]
-name = "quantsystem"
+name = "sector-relative-valuation"
 version = "0.1.0"
-description = ""
+description = "Sector-relative equity valuation model using Ridge-weighted factor scores and within-sector z-scoring across 11 GICS sectors."
 authors = ["Mack Haymond <mack.haymond@icloud.com>"]
 readme = "README.md"
+license = "MIT"
+packages = [{ include = "src" }]
 
 [tool.poetry.dependencies]
 python = "^3.12"

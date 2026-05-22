@@ -1,9 +1,9 @@
 variable "image_tag" {
-  type = string
+  type        = string
   description = "The docker image tag of the current deployment."
 }
 
-job "quantsystem" {
+job "sector-relative-valuation" {
   group "dashboard" {
     count = 1
 
@@ -12,18 +12,17 @@ job "quantsystem" {
         to = 8050
       }
     }
-    
+
     task "dashboard" {
       driver = "docker"
 
       config {
-        # The IMAGE_TAG environment variable will be interpolated at runtime.
-        image = "ghcr.io/mackhaymond/quantsystem:${var.image_tag}"
+        image = "ghcr.io/mackhaymond/sector-relative-valuation:${var.image_tag}"
         ports = ["dashboard_port"]
       }
 
       service {
-        name = "wwm"
+        name = "sector-relative-valuation"
         port = "dashboard_port"
         tags = [
           "traefik.enable=true",

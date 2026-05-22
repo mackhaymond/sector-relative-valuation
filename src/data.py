@@ -51,6 +51,41 @@ X3_QUALITY_METRICS = {
     "OperatingMargin": "operatingMargins"   # Operating efficiency
 }
 
+# Category 4: Value Metrics
+X4_VALUE_METRICS = {
+    "PriceToBook": "priceToBook",           # Price to Book ratio
+    "EvToEbitda": "evToEbitda",             # EV to EBITDA ratio
+    "PriceToSales": "priceToSales"          # Price to Sales ratio
+}
+
+# Category 5: Size Metrics
+X5_SIZE_METRICS = {
+    "MarketCap": "marketCap",               # Market Capitalization
+    "TotalAssets": "totalAssets",           # Total Assets
+    "EnterpriseValue": "enterpriseValue"    # Enterprise Value
+}
+
+# Category 6: Growth Metrics
+X6_GROWTH_METRICS = {
+    "RevenueGrowth": "revenueGrowth",       # Revenue Growth
+    "EpsGrowth": "epsGrowth",               # EPS Growth
+    "CashFlowGrowth": "cashFlowGrowth"      # Cash Flow Growth
+}
+
+# Category 7: Profitability Metrics
+X7_PROFITABILITY_METRICS = {
+    "GrossMargin": "grossMargin",           # Gross Margin
+    "EbitdaMargin": "ebitdaMargin",         # EBITDA Margin
+    "NetProfitMargin": "netProfitMargin"    # Net Profit Margin
+}
+
+# Category 8: Liquidity Metrics
+X8_LIQUIDITY_METRICS = {
+    "CurrentRatio": "currentRatio",         # Current Ratio
+    "QuickRatio": "quickRatio",             # Quick Ratio
+    "InterestCoverage": "interestCoverage"  # Interest Coverage
+}
+
 # Dependent Variable (Y) for Regression
 Y_VALUATION_METRIC = {
     "PE": "trailingPE"  # Trailing P/E ratio as valuation metric
@@ -65,15 +100,25 @@ ALL_METRICS = {
     **X1_RISK_METRICS,
     **X2_MOMENTUM_METRICS,
     **X3_QUALITY_METRICS,
+    **X4_VALUE_METRICS,
+    **X5_SIZE_METRICS,
+    **X6_GROWTH_METRICS,
+    **X7_PROFITABILITY_METRICS,
+    **X8_LIQUIDITY_METRICS,
     **Y_VALUATION_METRIC
 }
 
 # Create metrics dictionary for easy access
 METRICS = {
-    "x1_risk_metrics": X1_RISK_METRICS,        # X1 variable
-    "x2_momentum_metrics": X2_MOMENTUM_METRICS,    # X2 variable
-    "x3_quality_metrics": X3_QUALITY_METRICS,  # X3 variable
-    "y_valuation_metric": Y_VALUATION_METRIC,  # Y variable
+    "x1_risk_metrics": X1_RISK_METRICS,                # X1 variable
+    "x2_momentum_metrics": X2_MOMENTUM_METRICS,        # X2 variable
+    "x3_quality_metrics": X3_QUALITY_METRICS,          # X3 variable
+    "x4_value_metrics": X4_VALUE_METRICS,              # X4 variable
+    "x5_size_metrics": X5_SIZE_METRICS,                # X5 variable
+    "x6_growth_metrics": X6_GROWTH_METRICS,            # X6 variable
+    "x7_profitability_metrics": X7_PROFITABILITY_METRICS, # X7 variable
+    "x8_liquidity_metrics": X8_LIQUIDITY_METRICS,      # X8 variable
+    "y_valuation_metric": Y_VALUATION_METRIC,          # Y variable
     "all_metrics": ALL_METRICS
 }
 

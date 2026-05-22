@@ -38,12 +38,12 @@ for sector in data['Sector'].unique():
         'Quality_Score': normalized_weights[2]
     }
 
-# Calculate sector-specific magic scores
+# Calculate the sector-weighted composite z-score for each ticker
 for sector in sector_weights:
     sector_mask = data['Sector'] == sector
     weights = sector_weights[sector]
-    
-    data.loc[sector_mask, 'magic_score'] = (
+
+    data.loc[sector_mask, 'composite_z_score'] = (
         data.loc[sector_mask, 'Risk_Score'] * weights['Risk_Score'] +
         data.loc[sector_mask, 'Momentum_Score'] * weights['Momentum_Score'] +
         data.loc[sector_mask, 'Quality_Score'] * weights['Quality_Score']

@@ -16,6 +16,11 @@ from data import (
     X1_RISK_METRICS,
     X2_MOMENTUM_METRICS,
     X3_QUALITY_METRICS,
+    X4_VALUE_METRICS,
+    X5_SIZE_METRICS,
+    X6_GROWTH_METRICS,
+    X7_PROFITABILITY_METRICS,
+    X8_LIQUIDITY_METRICS,
     Y_VALUATION_METRIC,
     ALL_METRICS,
     calculate_rsi,
@@ -248,7 +253,173 @@ app.layout = html.Div([
                     children=html.Div(id='individual-company-info')
                 )
             ], style=STYLES['card'])
-        ])
+        ]),
+        
+        dcc.Tab(label='Factor Selection', children=[
+            html.Div([
+                html.H3('Select Factors for PE Ratio Prediction', style=STYLES['subtitle']),
+                html.Div([
+                    # Risk Factors
+                    html.Div([
+                        html.Div([
+                            dcc.Checklist(
+                                id='factor-group-checklist',
+                                options=[
+                                    {'label': 'Risk', 'value': 'risk'},
+                                    {'label': 'Momentum', 'value': 'momentum'},
+                                    {'label': 'Quality', 'value': 'quality'},
+                                    {'label': 'Value', 'value': 'value'},
+                                    {'label': 'Size', 'value': 'size'},
+                                    {'label': 'Growth', 'value': 'growth'},
+                                    {'label': 'Profitability', 'value': 'profitability'},
+                                    {'label': 'Liquidity', 'value': 'liquidity'},
+                                ],
+                                value=['risk', 'momentum', 'quality'],
+                                labelStyle={'display': 'block', 'margin': '10px 0', 'fontWeight': 'bold'}
+                            ),
+                        ]),
+                        
+                        # Risk Metrics
+                        html.Div([
+                            dcc.Checklist(
+                                id='risk-checklist',
+                                options=[
+                                    {'label': 'Max Drawdown', 'value': 'MaxDrawdown'},
+                                    {'label': 'Debt To Equity', 'value': 'DebtToEquity'},
+                                    {'label': 'Return SD', 'value': 'ReturnSD'},
+                                ],
+                                value=['MaxDrawdown', 'DebtToEquity', 'ReturnSD'],
+                                labelStyle={'display': 'block', 'marginLeft': '20px'}
+                            ),
+                        ], style={'marginBottom': '15px'}),
+                        
+                        # Momentum Metrics
+                        html.Div([
+                            dcc.Checklist(
+                                id='momentum-checklist',
+                                options=[
+                                    {'label': 'Price Change 12M', 'value': 'PriceChange12M'},
+                                    {'label': 'RSI', 'value': 'RSI'},
+                                    {'label': 'Earnings Growth', 'value': 'EarningsGrowth'},
+                                ],
+                                value=['PriceChange12M', 'RSI', 'EarningsGrowth'],
+                                labelStyle={'display': 'block', 'marginLeft': '20px'}
+                            ),
+                        ], style={'marginBottom': '15px'}),
+                        
+                        # Quality Metrics
+                        html.Div([
+                            dcc.Checklist(
+                                id='quality-checklist',
+                                options=[
+                                    {'label': 'ROE', 'value': 'ROE'},
+                                    {'label': 'ROA', 'value': 'ROA'},
+                                    {'label': 'Operating Margin', 'value': 'OperatingMargin'},
+                                ],
+                                value=['ROE', 'ROA', 'OperatingMargin'],
+                                labelStyle={'display': 'block', 'marginLeft': '20px'}
+                            ),
+                        ], style={'marginBottom': '15px'}),
+                        
+                        # Value Metrics
+                        html.Div([
+                            dcc.Checklist(
+                                id='value-checklist',
+                                options=[
+                                    {'label': 'Price To Book', 'value': 'PriceToBook'},
+                                    {'label': 'EV To EBITDA', 'value': 'EvToEbitda'},
+                                    {'label': 'Price To Sales', 'value': 'PriceToSales'},
+                                ],
+                                value=[],
+                                labelStyle={'display': 'block', 'marginLeft': '20px'}
+                            ),
+                        ], style={'marginBottom': '15px'}),
+                        
+                        # Size Metrics
+                        html.Div([
+                            dcc.Checklist(
+                                id='size-checklist',
+                                options=[
+                                    {'label': 'Market Cap', 'value': 'MarketCap'},
+                                    {'label': 'Total Assets', 'value': 'TotalAssets'},
+                                    {'label': 'Enterprise Value', 'value': 'EnterpriseValue'},
+                                ],
+                                value=[],
+                                labelStyle={'display': 'block', 'marginLeft': '20px'}
+                            ),
+                        ], style={'marginBottom': '15px'}),
+                        
+                        # Growth Metrics
+                        html.Div([
+                            dcc.Checklist(
+                                id='growth-checklist',
+                                options=[
+                                    {'label': 'Revenue Growth', 'value': 'RevenueGrowth'},
+                                    {'label': 'EPS Growth', 'value': 'EpsGrowth'},
+                                    {'label': 'Cash Flow Growth', 'value': 'CashFlowGrowth'},
+                                ],
+                                value=[],
+                                labelStyle={'display': 'block', 'marginLeft': '20px'}
+                            ),
+                        ], style={'marginBottom': '15px'}),
+                        
+                        # Profitability Metrics
+                        html.Div([
+                            dcc.Checklist(
+                                id='profitability-checklist',
+                                options=[
+                                    {'label': 'Gross Margin', 'value': 'GrossMargin'},
+                                    {'label': 'EBITDA Margin', 'value': 'EbitdaMargin'},
+                                    {'label': 'Net Profit Margin', 'value': 'NetProfitMargin'},
+                                ],
+                                value=[],
+                                labelStyle={'display': 'block', 'marginLeft': '20px'}
+                            ),
+                        ], style={'marginBottom': '15px'}),
+                        
+                        # Liquidity Metrics
+                        html.Div([
+                            dcc.Checklist(
+                                id='liquidity-checklist',
+                                options=[
+                                    {'label': 'Current Ratio', 'value': 'CurrentRatio'},
+                                    {'label': 'Quick Ratio', 'value': 'QuickRatio'},
+                                    {'label': 'Interest Coverage', 'value': 'InterestCoverage'},
+                                ],
+                                value=[],
+                                labelStyle={'display': 'block', 'marginLeft': '20px'}
+                            ),
+                        ], style={'marginBottom': '15px'}),
+                    ], style={'flex': '1', 'minWidth': '300px'}),
+                    
+                    # Regression Output
+                    html.Div([
+                        html.H3('Regression Results', style=STYLES['subtitle']),
+                        html.P("Simulator: This UI demonstrates how the feature will work once metrics data is added. Currently using aggregate scores as proxies.", 
+                            style={'fontSize': '12px', 'fontStyle': 'italic', 'marginBottom': '10px'}),
+                        html.Button(
+                            'Recalculate Regression',
+                            id='recalculate-button',
+                            style=STYLES['button']
+                        ),
+                        html.Div(id='reg-output', style={
+                            'fontFamily': 'monospace',
+                            'whiteSpace': 'pre-wrap',
+                            'overflowX': 'auto',
+                            'border': f'1px solid {COLORS["border"]}',
+                            'padding': '15px',
+                            'borderRadius': '4px',
+                            'backgroundColor': '#f8f9fa',
+                            'fontSize': '12px'
+                        })
+                    ], style={'flex': '2', 'minWidth': '500px'})
+                ], style={
+                    'display': 'flex',
+                    'flexWrap': 'wrap',
+                    'gap': '30px'
+                }),
+            ], style=STYLES['card'])
+        ]),
     ])
 ], style=STYLES['container'])
 
@@ -329,7 +500,7 @@ def update_graph(selected_sector, selected_company):
         )
         return empty_fig, None
     
-    x = filtered_df['magic_score']
+    x = filtered_df['composite_z_score']
     y = filtered_df['PE']
     
     # Check if there are enough data points for fitting
@@ -368,7 +539,7 @@ def update_graph(selected_sector, selected_company):
     line_y = fit[0] * line_x + fit[1]
     
     # Calculate predicted P/E values and deviations using .loc
-    filtered_df.loc[:, 'predicted_pe'] = fit[0] * filtered_df['magic_score'] + fit[1]
+    filtered_df.loc[:, 'predicted_pe'] = fit[0] * filtered_df['composite_z_score'] + fit[1]
     filtered_df.loc[:, 'pe_deviation'] = filtered_df['PE'] - filtered_df['predicted_pe']
     
     # Calculate R-squared
@@ -390,12 +561,12 @@ def update_graph(selected_sector, selected_company):
     
     # Add scatter points
     fig.add_trace(go.Scatter(
-        x=filtered_df['magic_score'],
+        x=filtered_df['composite_z_score'],
         y=filtered_df['PE'],
         mode='markers',
         name='Stocks',
         text=filtered_df.apply(
-            lambda row: f"Ticker: {row['Ticker']}<br>P/E: {row['PE']:.2f}<br>Fundamental Z-score: {row['magic_score']:.2f}",
+            lambda row: f"Ticker: {row['Ticker']}<br>P/E: {row['PE']:.2f}<br>Fundamental Z-score: {row['composite_z_score']:.2f}",
             axis=1
         ),
         hoverinfo='text',
@@ -438,7 +609,7 @@ def update_graph(selected_sector, selected_company):
     if selected_company and not filtered_df[filtered_df['Ticker'] == selected_company].empty:
         company_data = filtered_df[filtered_df['Ticker'] == selected_company].iloc[0]
         fig.add_trace(go.Scatter(
-            x=[company_data['magic_score']],
+            x=[company_data['composite_z_score']],
             y=[company_data['PE']],
             mode='markers',
             name='Selected Company',
@@ -552,7 +723,7 @@ def update_graph(selected_sector, selected_company):
                     'color': COLORS['text'],
                     'marginBottom': '8px'
                 }),
-                html.P(f"Fundamental Z-score: {company_data['magic_score']:.2f}", style={
+                html.P(f"Fundamental Z-score: {company_data['composite_z_score']:.2f}", style={
                     'fontFamily': FONT_FAMILY,
                     'fontSize': '16px',
                     'color': COLORS['text'],
@@ -618,6 +789,247 @@ def update_graph(selected_sector, selected_company):
     
     return fig, company_info
 
+# Define factor group mapping
+FACTOR_GROUPS = {
+    'risk': {
+        'name': 'Risk',
+        'checklist_id': 'risk-checklist',
+        'metrics': X1_RISK_METRICS
+    },
+    'momentum': {
+        'name': 'Momentum',
+        'checklist_id': 'momentum-checklist',
+        'metrics': X2_MOMENTUM_METRICS
+    },
+    'quality': {
+        'name': 'Quality',
+        'checklist_id': 'quality-checklist',
+        'metrics': X3_QUALITY_METRICS
+    },
+    'value': {
+        'name': 'Value',
+        'checklist_id': 'value-checklist',
+        'metrics': X4_VALUE_METRICS
+    },
+    'size': {
+        'name': 'Size',
+        'checklist_id': 'size-checklist',
+        'metrics': X5_SIZE_METRICS
+    },
+    'growth': {
+        'name': 'Growth',
+        'checklist_id': 'growth-checklist',
+        'metrics': X6_GROWTH_METRICS
+    },
+    'profitability': {
+        'name': 'Profitability',
+        'checklist_id': 'profitability-checklist',
+        'metrics': X7_PROFITABILITY_METRICS
+    },
+    'liquidity': {
+        'name': 'Liquidity',
+        'checklist_id': 'liquidity-checklist',
+        'metrics': X8_LIQUIDITY_METRICS
+    }
+}
+
+# Callbacks for Factor Selection tab
+@app.callback(
+    [Output('risk-checklist', 'style'),
+     Output('momentum-checklist', 'style'),
+     Output('quality-checklist', 'style'),
+     Output('value-checklist', 'style'),
+     Output('size-checklist', 'style'),
+     Output('growth-checklist', 'style'),
+     Output('profitability-checklist', 'style'),
+     Output('liquidity-checklist', 'style')],
+    [Input('factor-group-checklist', 'value')]
+)
+def toggle_factor_checklists(selected_groups):
+    # Default style - hidden
+    hidden_style = {'display': 'none', 'marginBottom': '15px'}
+    # Visible style
+    visible_style = {'marginBottom': '15px'}
+    
+    # If no groups selected, default to risk, momentum, quality
+    if not selected_groups:
+        selected_groups = ['risk', 'momentum', 'quality']
+    
+    # Set visibility for each group
+    styles = []
+    for group in ['risk', 'momentum', 'quality', 'value', 'size', 'growth', 'profitability', 'liquidity']:
+        if group in selected_groups:
+            styles.append(visible_style)
+        else:
+            styles.append(hidden_style)
+            
+    return styles
+
+@app.callback(
+    [Output('risk-checklist', 'value'),
+     Output('momentum-checklist', 'value'),
+     Output('quality-checklist', 'value'),
+     Output('value-checklist', 'value'),
+     Output('size-checklist', 'value'),
+     Output('growth-checklist', 'value'),
+     Output('profitability-checklist', 'value'),
+     Output('liquidity-checklist', 'value')],
+    [Input('factor-group-checklist', 'value')]
+)
+def reset_checklist_values(selected_groups):
+    # Default empty value
+    empty_value = []
+    
+    # If no groups selected, default to risk, momentum, quality
+    if not selected_groups:
+        selected_groups = ['risk', 'momentum', 'quality']
+    
+    # Default selections for the base groups
+    defaults = {
+        'risk': list(X1_RISK_METRICS.keys()),
+        'momentum': list(X2_MOMENTUM_METRICS.keys()),
+        'quality': list(X3_QUALITY_METRICS.keys()),
+        'value': empty_value,
+        'size': empty_value,
+        'growth': empty_value,
+        'profitability': empty_value,
+        'liquidity': empty_value
+    }
+    
+    # Return default values for each checklist based on selection
+    values = []
+    for group in ['risk', 'momentum', 'quality', 'value', 'size', 'growth', 'profitability', 'liquidity']:
+        if group in selected_groups:
+            values.append(defaults[group])
+        else:
+            values.append(empty_value)
+            
+    return values
+
+
+# Callback for the Recalculate button to update regression
+@app.callback(
+    Output('reg-output', 'children'),
+    [Input('recalculate-button', 'n_clicks')],
+    [State('risk-checklist', 'value'),
+     State('momentum-checklist', 'value'),
+     State('quality-checklist', 'value'),
+     State('value-checklist', 'value'),
+     State('size-checklist', 'value'),
+     State('growth-checklist', 'value'),
+     State('profitability-checklist', 'value'),
+     State('liquidity-checklist', 'value'),
+     State('factor-group-checklist', 'value')]
+)
+def update_regression_output(n_clicks, risk_metrics, momentum_metrics, quality_metrics, 
+                            value_metrics, size_metrics, growth_metrics, 
+                            profitability_metrics, liquidity_metrics, selected_groups):
+    import statsmodels.api as sm
+    
+    # If no groups selected, default to risk, momentum, quality
+    if not selected_groups:
+        selected_groups = ['risk', 'momentum', 'quality']
+        
+    # Check if all metrics are empty, then use defaults
+    all_empty = not any([risk_metrics, momentum_metrics, quality_metrics, 
+                         value_metrics, size_metrics, growth_metrics, 
+                         profitability_metrics, liquidity_metrics])
+    
+    if all_empty:
+        risk_metrics = list(X1_RISK_METRICS.keys()) if 'risk' in selected_groups else []
+        momentum_metrics = list(X2_MOMENTUM_METRICS.keys()) if 'momentum' in selected_groups else []
+        quality_metrics = list(X3_QUALITY_METRICS.keys()) if 'quality' in selected_groups else []
+    
+    # For the mock implementation, we'll use Risk_Score, Momentum_Score, and Quality_Score
+    # as representatives for each factor group
+    
+    # Collect all selected metrics by group
+    factor_columns = {}
+    if 'risk' in selected_groups and risk_metrics:
+        factor_columns['Risk'] = ['Risk_Score']  # In a real implementation, this would be risk_metrics
+    if 'momentum' in selected_groups and momentum_metrics:
+        factor_columns['Momentum'] = ['Momentum_Score']  # In a real implementation, this would be momentum_metrics
+    if 'quality' in selected_groups and quality_metrics:
+        factor_columns['Quality'] = ['Quality_Score']  # In a real implementation, this would be quality_metrics
+    if 'value' in selected_groups and value_metrics:
+        factor_columns['Value'] = ['Risk_Score']  # Placeholder - in a real implementation, this would be value_metrics
+    if 'size' in selected_groups and size_metrics:
+        factor_columns['Size'] = ['Momentum_Score']  # Placeholder - in a real implementation, this would be size_metrics  
+    if 'growth' in selected_groups and growth_metrics:
+        factor_columns['Growth'] = ['Quality_Score']  # Placeholder - in a real implementation, this would be growth_metrics
+    if 'profitability' in selected_groups and profitability_metrics:
+        factor_columns['Profitability'] = ['Risk_Score']  # Placeholder - in a real implementation, this would be profitability_metrics
+    if 'liquidity' in selected_groups and liquidity_metrics:
+        factor_columns['Liquidity'] = ['Momentum_Score']  # Placeholder - in a real implementation, this would be liquidity_metrics
+    
+    # If no metrics selected or all groups empty, use defaults
+    if not factor_columns:
+        factor_columns = {
+            'Risk': ['Risk_Score'],
+            'Momentum': ['Momentum_Score'],
+            'Quality': ['Quality_Score']
+        }
+    
+    # Flatten the list of columns
+    selected_columns = []
+    for group, columns in factor_columns.items():
+        selected_columns.extend(columns)
+    
+    # Remove duplicates
+    selected_columns = list(set(selected_columns))
+    
+    try:
+        # Build X matrix with selected columns and add constant
+        X = df[selected_columns].copy()
+        X = sm.add_constant(X)  # Add constant for intercept
+        
+        # Define y as peRatio
+        y = df['PE']
+        
+        # Run OLS regression
+        model = sm.OLS(y, X).fit()
+        
+        # Create a custom summary to better show the selected factors
+        result_parts = [
+            f"OLS Regression Results for PE Ratio prediction",
+            f"=====================================",
+            f"",
+            f"Selected Factor Groups:",
+        ]
+        
+        for group, columns in factor_columns.items():
+            metrics_list = locals()[f"{group.lower()}_metrics"]
+            if metrics_list:
+                result_parts.append(f"- {group}: {', '.join(metrics_list)}")
+            
+        result_parts.extend([
+            f"",
+            f"Regression Statistics:",
+            f"R-squared: {model.rsquared:.4f}",
+            f"Adjusted R-squared: {model.rsquared_adj:.4f}",
+            f"F-statistic: {model.fvalue:.4f}",
+            f"Prob (F-statistic): {model.f_pvalue:.4f}",
+            f"",
+            f"Coefficients:",
+        ])
+        
+        for i, var_name in enumerate(model.params.index):
+            result_parts.append(
+                f"{var_name}: {model.params[i]:.4f} (p={model.pvalues[i]:.4f})"
+            )
+            
+        # Add the full model summary at the end
+        result_parts.extend([
+            f"",
+            f"Full Statistical Summary:",
+            f"----------------------------",
+            model.summary().as_text()
+        ])
+        
+        return "\n".join(result_parts)
+    except Exception as e:
+        return f"Error in regression: {str(e)}\n\nPlease check that all selected metrics exist in the dataset."
+
 @app.callback(
     [Output('sector-scatter-plot', 'figure'),
      Output('pe-comparison-plot', 'figure'),
@@ -633,6 +1045,56 @@ def analyze_individual_stock(n_clicks, ticker):
     # Initial status message
     status_message = f"Analyzing {ticker}..."
     
+# Initialize regression results on page load - this runs when the page first loads
+@app.callback(
+    Output('reg-output', 'children'),
+    [Input('factor-group-checklist', 'value')],
+    [State('risk-checklist', 'value'),
+     State('momentum-checklist', 'value'),
+     State('quality-checklist', 'value')]
+)
+def initial_regression(selected_groups, risk_metrics, momentum_metrics, quality_metrics):
+    import statsmodels.api as sm
+    
+    # If no groups selected, default to risk, momentum, quality
+    if not selected_groups:
+        selected_groups = ['risk', 'momentum', 'quality']
+        
+    # Collect default metrics by group
+    selected_columns = []
+    if 'risk' in selected_groups:
+        selected_columns.append('Risk_Score')
+    if 'momentum' in selected_groups:
+        selected_columns.append('Momentum_Score')
+    if 'quality' in selected_groups:
+        selected_columns.append('Quality_Score')
+    
+    try:
+        # Build X matrix with selected columns and add constant
+        X = df[selected_columns].copy()
+        X = sm.add_constant(X)  # Add constant for intercept
+        
+        # Define y as peRatio
+        y = df['PE']
+        
+        # Run OLS regression
+        model = sm.OLS(y, X).fit()
+        
+        # Return simplified initial view
+        return f"""OLS Regression Results for PE Ratio prediction
+====================================
+
+Default factor groups are selected (Risk, Momentum, Quality).
+Click "Recalculate Regression" after making selections to update the model.
+
+R-squared: {model.rsquared:.4f}
+Adjusted R-squared: {model.rsquared_adj:.4f}
+"""
+    except Exception as e:
+        return f"Error in initial regression: {str(e)}"
+    
+    
+# Continue with the main function
     try:
         # Load sector data and weights
         sector_df = pd.read_csv('sector_analysis_full.csv')
@@ -714,7 +1176,7 @@ def analyze_individual_stock(n_clicks, ticker):
         # Get weights for the sector
         sector_weights = weights_df[weights_df['Sector'] == stock_sector].iloc[0]
         
-        # Calculate magic score using only available category scores
+        # Compute the composite z-score from the available category scores
         available_scores = []
         total_weight = 0
         
@@ -724,19 +1186,19 @@ def analyze_individual_stock(n_clicks, ticker):
             available_scores.append(stock_info[metric_group] * weight)
             total_weight += weight
         
-        # Normalize magic score based on available weights
+        # Normalize the composite z-score based on the available weights
         if total_weight > 0:
-            magic_score = sum(available_scores) * (1 / total_weight)
+            composite_z_score = sum(available_scores) * (1 / total_weight)
         else:
             # Fallback to a simple average if weights are zero
-            magic_score = np.mean([
+            composite_z_score = np.mean([
                 stock_info['Risk_Score'], 
                 stock_info['Momentum_Score'], 
                 stock_info['Quality_Score']
             ])
         
-        # Calculate magic scores for sector stocks
-        def calculate_magic_score(row):
+        # Compute composite z-scores for every ticker in the sector
+        def calculate_composite_z_score(row):
             available_scores = []
             total_weight = 0
             for metric_group in ['Risk_Score', 'Momentum_Score', 'Quality_Score']:
@@ -746,16 +1208,16 @@ def analyze_individual_stock(n_clicks, ticker):
                     total_weight += weight
             return sum(available_scores) * (1 / total_weight) if available_scores and total_weight > 0 else np.nan
 
-        sector_stocks['magic_score'] = sector_stocks.apply(calculate_magic_score, axis=1)
+        sector_stocks['composite_z_score'] = sector_stocks.apply(calculate_composite_z_score, axis=1)
         
-        # Remove any rows with NaN magic scores
-        sector_stocks = sector_stocks.dropna(subset=['magic_score', 'PE'])
+        # Drop rows whose composite z-score or P/E could not be computed
+        sector_stocks = sector_stocks.dropna(subset=['composite_z_score', 'PE'])
         
         # Create visualization
         fig = go.Figure()
         
         # Add scatter points for sector
-        x = sector_stocks['magic_score']
+        x = sector_stocks['composite_z_score']
         y = sector_stocks['PE']
         
         # Calculate line of best fit
@@ -768,7 +1230,7 @@ def analyze_individual_stock(n_clicks, ticker):
         r_squared = np.corrcoef(x, y)[0, 1]**2
         
         # Calculate predicted PE
-        predicted_pe = fit[0] * magic_score + fit[1]
+        predicted_pe = fit[0] * composite_z_score + fit[1]
         
         # Handle PE values properly
         actual_pe = stock_info.get('trailingPE', np.nan)
@@ -804,7 +1266,7 @@ def analyze_individual_stock(n_clicks, ticker):
         
         # Add sector scatter points
         fig.add_trace(go.Scatter(
-            x=sector_stocks['magic_score'],
+            x=sector_stocks['composite_z_score'],
             y=sector_stocks['PE'],
             mode='markers',
             name='Sector Stocks',
@@ -828,7 +1290,7 @@ def analyze_individual_stock(n_clicks, ticker):
         
         # Add individual stock point
         fig.add_trace(go.Scatter(
-            x=[magic_score],
+            x=[composite_z_score],
             y=[actual_pe],
             mode='markers',
             name=ticker,
@@ -968,7 +1430,7 @@ def analyze_individual_stock(n_clicks, ticker):
         info_sections = [
             ('Company Information', [
                 (f"Sector", f"{GICS_SECTOR_MAPPING.get(stock_sector, stock_sector)}"),
-                ("Fundamental Z-score", f"{magic_score:.2f}"),
+                ("Fundamental Z-score", f"{composite_z_score:.2f}"),
             ]),
             ('P/E Analysis', [
                 ("Actual P/E", f"{actual_pe:.2f}"),
@@ -1035,8 +1497,8 @@ def analyze_individual_stock(n_clicks, ticker):
                 html.Span("Sector: ", style={'fontWeight': 'bold'}),
                 html.Span(f"{GICS_SECTOR_MAPPING.get(stock_sector, stock_sector)}"),
                 html.Span(" | "),
-                html.Span("Magic Score: ", style={'fontWeight': 'bold'}),
-                html.Span(f"{magic_score:.2f}"),
+                html.Span("Fundamental Z-score: ", style={'fontWeight': 'bold'}),
+                html.Span(f"{composite_z_score:.2f}"),
             ], style={'marginTop': '8px', 'fontSize': '13px'})
         ])
         
