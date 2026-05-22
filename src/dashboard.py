@@ -860,13 +860,21 @@ def analyze_individual_stock(n_clicks, ticker):
         # Filter sector data
         sector_stocks = sector_df[sector_df['Sector'] == stock_sector].copy()
         
-        # Calculate z-scores for the individual stock using sector data
+        # Calculate z-scores for the individual stock using sector data.
+        # Track availability per category so the UI can render 'unavailable'
+        # rather than substituting a neutral 0.0 — a zero score reads as
+        # 'exactly average for the sector', not 'we have no data'.
         category_stats = {
             'Risk_Score': {'metrics': X1_RISK_METRICS, 'available': 0, 'total': len(X1_RISK_METRICS)},
             'Momentum_Score': {'metrics': X2_MOMENTUM_METRICS, 'available': 0, 'total': len(X2_MOMENTUM_METRICS)},
             'Quality_Score': {'metrics': X3_QUALITY_METRICS, 'available': 0, 'total': len(X3_QUALITY_METRICS)}
         }
-        
+        category_is_missing: dict[str, bool] = {
+            'Risk_Score': True,
+            'Momentum_Score': True,
+            'Quality_Score': True,
+        }
+
         for metric_group, info in category_stats.items():
             metric_zscores = []
             for metric_name, yf_metric in info['metrics'].items():
@@ -915,11 +923,25 @@ def analyze_individual_stock(n_clicks, ticker):
             # Calculate composite score if we have at least one valid metric
             if metric_zscores:
                 stock_info[metric_group] = np.mean(metric_zscores)
+                category_is_missing[metric_group] = False
             else:
-                # If no metrics, assign a neutral score (0) instead of NaN
+                # No metrics resolved. Use 0.0 as a downstream placeholder
+                # (so the weighted composite and regression-line math
+                # don't have to special-case NaN), but flag the category
+                # as missing so the info card refuses to display the
+                # value as if it were a real score.
                 stock_info[metric_group] = 0.0
-                print(f"Warning: No valid metrics found for {metric_group}, using neutral score")
-        
+                print(f"Warning: No valid metrics found for {metric_group}, marking unavailable")
+
+        if all(category_is_missing.values()):
+            error_message = html.Div([
+                html.Span("Unable to analyze ", style={'color': COLORS['text']}),
+                html.Span(f"{ticker}", style={'fontWeight': 'bold', 'color': COLORS['secondary']}),
+                html.Span(": no fundamental data resolved from Yahoo Finance.",
+                          style={'color': COLORS['text']}),
+            ])
+            return {}, {}, None, error_message
+
         # Get weights for the sector
         sector_weights = weights_df[weights_df['Sector'] == stock_sector].iloc[0]
         
@@ -1191,9 +1213,15 @@ def analyze_individual_stock(n_clicks, ticker):
                 ("P/E Deviation", "unavailable" if pe_is_missing else f"{pe_deviation:.2f}"),
             ]),
             ('Category Scores', [
-                ("Risk Score", f"{stock_info['Risk_Score']:.2f}"),
-                ("Momentum Score", f"{stock_info['Momentum_Score']:.2f}"),
-                ("Quality Score", f"{stock_info['Quality_Score']:.2f}"),
+                ("Risk Score",
+                 "unavailable" if category_is_missing['Risk_Score']
+                 else f"{stock_info['Risk_Score']:.2f}"),
+                ("Momentum Score",
+                 "unavailable" if category_is_missing['Momentum_Score']
+                 else f"{stock_info['Momentum_Score']:.2f}"),
+                ("Quality Score",
+                 "unavailable" if category_is_missing['Quality_Score']
+                 else f"{stock_info['Quality_Score']:.2f}"),
             ])
         ]
         
