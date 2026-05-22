@@ -14,20 +14,18 @@ Ranking AAPL against XOM on P/E ranks Apple's sector against ExxonMobil's sector
 
 ## 2. Factor universe
 
-Eight factor categories are collected in `src/data.py`, each composed of three underlying metrics (24 metrics total):
+Six factor categories are collected in `src/data.py`, each composed of three underlying metrics (18 metrics total):
 
 | Category        | Metrics                                                                |
 | --------------- | ---------------------------------------------------------------------- |
 | Risk            | Max drawdown (1y), debt-to-equity, return standard deviation (1y)      |
 | Momentum        | 52-week price change, RSI, earnings growth                             |
 | Quality         | ROE, ROA, operating margin                                             |
-| Value           | Price-to-book, EV/EBITDA, price-to-sales                               |
 | Size            | Market cap, total assets, enterprise value                             |
 | Growth          | Revenue growth, EPS growth, cash flow growth                           |
 | Profitability   | Gross margin, EBITDA margin, net profit margin                         |
-| Liquidity       | Current ratio, quick ratio, interest coverage                          |
 
-Three categories — Risk, Momentum, Quality — are weighted in the production fit. The remaining five are collected and surfaced in the dashboard's Factor Selection tab as a scaffold for future model iterations, but are not yet incorporated into the Ridge regression that produces sector weights. This is an honest gap, not an oversight; widening the model has design implications (multicollinearity between Value and Quality, between Size and Liquidity) that are not addressed here.
+Three categories — Risk, Momentum, Quality — are weighted in the production fit. The remaining three (Size, Growth, Profitability) are collected for future model iterations but are not yet incorporated into the Ridge regression that produces sector weights. Two further categories that earlier iterations of this codebase collected — Value (price-to-book, EV/EBITDA, price-to-sales) and Liquidity (current ratio, quick ratio, interest coverage) — have been dropped from the pipeline entirely: Value is mechanically circular with the trailing-P/E regression target, and Liquidity is a weak P/E predictor that breaks for financials. Both can be re-introduced if the design ever calls for them.
 
 The target variable is the trailing P/E ratio. The framework supports alternative valuation targets (price-to-book, price-to-sales, price-to-free-cashflow) by changing the `Y_VALUATION_METRIC` map; only trailing P/E is exercised in the current fit.
 
@@ -89,7 +87,7 @@ None of those are in scope here. The deviation is best read as a structured way 
 - **Per-sector sample size.** Sectors with fewer than ~30 surviving names produce noisy Ridge fits. The outlier filter compounds this.
 - **R² is heterogeneous.** The cross-sectional fit explains a meaningful share of P/E variance in some sectors and very little in others. The dashboard surfaces R² per sector so this is visible at a glance.
 - **Point-in-time issues.** Fundamentals are pulled as-of-now from Yahoo Finance with no restatement handling, no proper PIT alignment, and no survivorship-bias correction on the curated ticker list.
-- **Three factors out of eight.** Value, Size, Growth, Profitability, Liquidity are collected and stored but not weighted. The model implicitly attributes variance from those factors to the three that are included; correlated omitted variables will bias the included coefficients.
+- **Three factors out of six.** Size, Growth, Profitability are collected and stored but not weighted. The model implicitly attributes variance from those factors to the three that are included; correlated omitted variables will bias the included coefficients.
 - **Single data source.** No cross-vendor consistency check. Yahoo Finance field coverage is uneven (e.g. `earningsGrowth` is frequently null) and the pipeline mean-imputes through those gaps.
 
 ## 9. What would meaningfully extend this

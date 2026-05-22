@@ -13,8 +13,8 @@ Mispricings surface as the deviation between a company's actual P/E and its sect
 ## Methodology
 
 - **Coverage:** the full Russell 1000 (~1,000 stocks, currently 1,002) across 11 GICS sectors (basic-materials, communication-services, consumer-cyclical, consumer-defensive, energy, financial-services, healthcare, industrials, real-estate, technology, utilities). Constituent list lives in `data/russell1000.csv`.
-- **Factor universe:** 8 factor categories defined in `src/data.py` (Risk, Momentum, Quality, Value, Size, Growth, Profitability, Liquidity), each composed of 3 underlying metrics — 24 metrics total are collected.
-- **Current model:** 3 of the 8 factor groups (Risk, Momentum, Quality) are wired into the regression. The remaining 5 are collected and exposed in the dashboard's Factor Selection tab as a scaffold for future iterations; they are not yet weighted in the production fit.
+- **Factor universe:** 6 factor categories defined in `src/data.py` (Risk, Momentum, Quality, Size, Growth, Profitability), each composed of 3 underlying metrics — 18 metrics total are collected.
+- **Current model:** 3 of the 6 factor groups (Risk, Momentum, Quality) are wired into the regression. The remaining 3 (Size, Growth, Profitability) are collected for future model iterations but are not yet weighted in the production fit.
 - **Normalization:** every underlying metric is z-scored *within* its sector before being averaged into a factor composite. This avoids the cross-sector contamination that motivated the project.
 - **Outlier handling:** rows are dropped if any of the three factor composites or the P/E z-score exceeds 2.5 standard deviations in absolute value.
 - **Fit:** for each sector, a Ridge regression (`scikit-learn`, `alpha=1.0`, no intercept) is fit with the three z-scored factor composites as predictors and the within-sector P/E z-score as the target. Coefficients are taken as the absolute-value normalized factor weights for that sector.
@@ -78,7 +78,7 @@ The repo ships with a recent `sector_analysis.csv` and `weights.csv` so the dash
 - **No formal backtest.** The model is fit cross-sectionally on a single snapshot of fundamentals; predicted-vs-actual P/E deviation has not been validated as a forward-return signal. There is no holdout, walk-forward, or transaction-cost analysis. Treat all output as descriptive, not prescriptive.
 - **Coverage is the Russell 1000.** ~1,000 large- and mid-cap US-listed names across 11 sectors. Conclusions do not generalize to small caps, micro caps, or international names that are not Russell constituents.
 - **R² varies materially by sector.** The within-sector linear fit between composite z-score and P/E is informative in some sectors and weak in others. The dashboard displays the R² per sector so this is visible at a glance rather than buried.
-- **Only 3 of 8 factor groups are weighted.** Value, Size, Growth, Profitability, and Liquidity are collected and exposed in the UI but not yet incorporated into the Ridge fit.
+- **Only 3 of 6 factor groups are weighted.** Size, Growth, and Profitability are collected but not yet incorporated into the Ridge fit. An earlier iteration also collected Value and Liquidity; both were dropped from the pipeline (Value is mechanically circular with the trailing-P/E target; Liquidity is a weak P/E predictor that breaks for financials).
 - **Single data source.** Yahoo Finance is the only feed; fundamentals are point-in-time as scraped, with no PIT correction or restatement handling.
 - **No real-money usage.** This is a research framework, not a trading system.
 
