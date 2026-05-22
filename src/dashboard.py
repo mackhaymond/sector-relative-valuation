@@ -544,10 +544,13 @@ def update_graph(selected_sector, selected_company):
     filtered_df.loc[:, 'predicted_pe'] = fit[0] * filtered_df['composite_z_score'] + fit[1]
     filtered_df.loc[:, 'pe_deviation'] = filtered_df['PE'] - filtered_df['predicted_pe']
     
-    # Calculate R-squared
-    y_pred = fit[0] * x + fit[1]
-    r_squared = np.corrcoef(x, y)[0, 1]**2
-    
+    # R-squared can come back as NaN when one axis has zero variance
+    # (e.g. a sector with a single surviving company after filtering, or
+    # ticker P/Es that all collapse to the same value). Surface that
+    # explicitly rather than rendering 'R² = nan' on the chart.
+    r_squared = float(np.corrcoef(x, y)[0, 1]**2)
+    r_squared_available = not np.isnan(r_squared)
+
     # Find maximum deviation in sector for bar chart range
     max_deviation = abs(filtered_df['pe_deviation']).max()
     deviation_range = [-max_deviation, max_deviation]
@@ -591,7 +594,7 @@ def update_graph(selected_sector, selected_company):
     
     # Add equation and R² annotation
     equation = f'y = {fit[0]:.2f}x + {fit[1]:.2f}'
-    r2_text = f'R² = {r_squared:.3f}'
+    r2_text = f'R² = {r_squared:.3f}' if r_squared_available else 'R² = N/A (insufficient variance)'
     fig.add_annotation(
         x=0.02,
         y=0.98,
@@ -1170,31 +1173,37 @@ def analyze_individual_stock(n_clicks, ticker):
         line_x = np.array([x.min(), x.max()])
         line_y = fit[0] * line_x + fit[1]
         
-        # Calculate R-squared
-        y_pred = fit[0] * x + fit[1]
-        r_squared = np.corrcoef(x, y)[0, 1]**2
-        
-        # Calculate predicted PE
+        # R-squared can come back as NaN when the sector cross-section has
+        # zero variance on either axis. Surface that explicitly downstream
+        # instead of rendering 'R² = nan'.
+        r_squared = float(np.corrcoef(x, y)[0, 1]**2)
+        r_squared_available = not np.isnan(r_squared)
+
         predicted_pe = fit[0] * composite_z_score + fit[1]
-        
-        # Handle PE values properly
+
+        # Resolve the ticker's actual P/E from yfinance, falling back across
+        # the trailing / forward / PEG ratio keys in priority order. Track
+        # whether the resolution actually succeeded so the UI can be honest
+        # about missing data instead of silently showing a zero deviation.
         actual_pe = stock_info.get('trailingPE', np.nan)
         if pd.isna(actual_pe):
-            # Try to get PE from other possible keys
             for pe_key in ['trailingPE', 'forwardPE', 'pegRatio']:
                 if pe_key in stock_info and not pd.isna(stock_info[pe_key]):
                     actual_pe = stock_info[pe_key]
                     break
-                    
-        # If still no PE value, use predicted PE
-        if pd.isna(actual_pe):
+
+        pe_is_missing = bool(pd.isna(actual_pe))
+        if pe_is_missing:
+            # Use the predicted P/E as a placeholder so the bar chart range
+            # below still has a finite extent. The info card and hover text
+            # explicitly flag the value as unavailable.
             actual_pe = predicted_pe
-            
+
         pe_deviation = actual_pe - predicted_pe
         
         # Add equation and R² annotation
         equation = f'y = {fit[0]:.2f}x + {fit[1]:.2f}'
-        r2_text = f'R² = {r_squared:.3f}'
+        r2_text = f'R² = {r_squared:.3f}' if r_squared_available else 'R² = N/A (insufficient variance)'
         fig.add_annotation(
             x=0.02,
             y=0.98,
@@ -1378,9 +1387,9 @@ def analyze_individual_stock(n_clicks, ticker):
                 ("Fundamental Z-score", f"{composite_z_score:.2f}"),
             ]),
             ('P/E Analysis', [
-                ("Actual P/E", f"{actual_pe:.2f}"),
+                ("Actual P/E", "unavailable" if pe_is_missing else f"{actual_pe:.2f}"),
                 ("Predicted P/E", f"{predicted_pe:.2f}"),
-                ("P/E Deviation", f"{pe_deviation:.2f}"),
+                ("P/E Deviation", "unavailable" if pe_is_missing else f"{pe_deviation:.2f}"),
             ]),
             ('Category Scores', [
                 ("Risk Score", f"{stock_info['Risk_Score']:.2f}"),
