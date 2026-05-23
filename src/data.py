@@ -348,14 +348,23 @@ async def process_data(
         print("No data was collected successfully.")
         return None, None
 
+    # yfinance occasionally returns +/- inf for ratios with near-zero
+    # denominators (e.g. trailingPE for a company with EPS just barely
+    # positive). pd.dropna does NOT treat inf as missing, so a single
+    # inf value silently poisons scipy.stats.zscore (mean -> inf, std ->
+    # inf, every z -> NaN), which then wipes the entire sector through
+    # the 2.5-sigma outlier filter below. Coerce inf to NaN up front so
+    # the existing missing-data paths (dropna for PE, mean-imputation
+    # for the X1/X2/X3 metrics) handle these rows correctly.
+    df = df.replace([np.inf, -np.inf], np.nan)
 
     # Calculate z-scores for each metric group
     for metric_group in ["x1_risk_metrics", "x2_momentum_metrics", "x3_quality_metrics"]:
         for metric_name in metrics[metric_group].keys():
             if metric_name in df.columns:
-                df.loc[:, f"{metric_name}_ZScore"] = zscore(df[metric_name].fillna(df[metric_name].mean()), 
+                df.loc[:, f"{metric_name}_ZScore"] = zscore(df[metric_name].fillna(df[metric_name].mean()),
                                                    nan_policy='omit')
-    
+
     # Calculate PE Z-score separately (our target variable)
     if "PE" in df.columns:
         # Remove companies with no P/E values
