@@ -34,56 +34,56 @@ Mispricings surface as the deviation between a company's actual P/E and its sect
 - `simfin`, `python-dotenv` — point-in-time fundamentals for the backtest (`src/backtest.py`)
 - `matplotlib ^3.9.2` — backtest artifact rendering only (not part of the production dashboard)
 
-**Dashboard (vanilla web + Cloudflare Pages):**
+**Dashboard (single Cloudflare Worker with Static Assets binding):**
 
-- `index.html` + `app.js` + `styles.css` — three-tab SPA, no framework
+- `public/index.html` + `public/app.js` + `public/styles.css` — three-tab SPA, no framework. Served from the Worker's `[assets]` binding.
 - [Plotly.js cartesian dist](https://plotly.com/javascript/) v2.35.3 — scatter + bar + annotations (pinned via jsdelivr with sha384 SRI)
 - [PapaParse](https://www.papaparse.com/) v5.4.1 — CSV ingestion
 - [simple-statistics](https://simplestatistics.org/) v7.8.7 — univariate OLS; multivariate OLS is hand-rolled in `app.js` against the normal equations with Numerical-Recipes incomplete-beta for t / F p-values
-- [yahoo-finance2](https://github.com/gadicc/yahoo-finance2) v3.14 — single-ticker proxy, run inside a Cloudflare Pages Function (`functions/api/yf.js`)
-- Edge-cached on Cloudflare's `caches.default`; 5-minute TTL for fundamentals
+- [yahoo-finance2](https://github.com/gadicc/yahoo-finance2) v3.14 — single-ticker proxy, run inside the Cloudflare Worker at `src/worker.js`. Edge-cached on Cloudflare's `caches.default`; 5-minute TTL for fundamentals.
 
-Data refresh runs in GitHub Actions (`.github/workflows/run-and-commit.yml`); the push of refreshed CSVs auto-triggers a Cloudflare Pages redeploy.
+Data refresh runs in GitHub Actions (`.github/workflows/run-and-commit.yml`); the workflow moves the refreshed CSVs into `./public/` and the deploy workflow (`.github/workflows/deploy-worker.yml`) re-publishes the Worker on push to `main`.
 
 ## Repository structure
 
 ```
 .
-├── index.html               # Static SPA entry point - three tabs, CDN-pinned JS deps
-├── app.js                   # Sector / Individual Stock / Factor tabs + Plotly + OLS
-├── styles.css               # Visual identity (palette, fonts, card chrome)
-├── functions/api/yf.js      # Cloudflare Pages Function bound to /api/yf
-├── wrangler.jsonc           # Cloudflare runtime config (nodejs_compat, __dirname shim)
-├── package.json             # yahoo-finance2 + wrangler, npm run dev / deploy
-├── DEPLOYMENT.md            # First-time Pages setup click-path, troubleshooting
+├── public/                  # Worker [assets] directory - served from the edge
+│   ├── index.html           # Static SPA entry point - three tabs, CDN-pinned JS deps
+│   ├── app.js               # Sector / Individual Stock / Factor tabs + Plotly + OLS
+│   ├── styles.css           # Visual identity (palette, fonts, card chrome)
+│   ├── sector_analysis.csv  # Simplified per-ticker output
+│   ├── sector_analysis_full.csv  # Full per-ticker output with raw metrics + z-scores
+│   └── weights.csv          # Per-sector Ridge-derived factor weights
 ├── src/
+│   ├── worker.js            # Cloudflare Worker entry: /api/yf proxy (yahoo-finance2)
 │   ├── data.py              # Async collection of 5 factor groups from Yahoo Finance
 │   │                        # plus within-sector z-scoring and 3.0σ outlier filter
 │   ├── generate_weights.py  # Per-sector Ridge regression and composite z-score writeback
 │   ├── backtest.py          # 36-month walk-forward PIT backtest (see BACKTEST.md)
 │   └── pit_fundamentals.py  # SimFin point-in-time fetcher used by the backtest
-├── sector_analysis.csv      # Simplified per-ticker output (sector, composites, PE, composite_z_score)
-├── sector_analysis_full.csv # Full per-ticker output with every collected metric and z-score
-├── weights.csv              # Per-sector Ridge-derived factor weights
+├── wrangler.jsonc           # Worker config (nodejs_compat, assets binding, custom domain)
+├── package.json             # yahoo-finance2 + wrangler, npm run dev / deploy / tail
+├── DEPLOYMENT.md            # Workers deploy flow, CI token setup, troubleshooting
 ├── backtest_artifacts/      # Backtest chart PNGs (cumulative return, IC by sector)
 ├── data/russell1000.csv     # Universe definition (ticker + GICS sector slug)
 ├── pyproject.toml           # uv-managed Python dependencies
 ├── uv.lock                  # Locked Python dependency graph
-└── .github/workflows/       # CI: scheduled data refresh that commits CSVs back to main
+└── .github/workflows/       # CI: scheduled data refresh + auto-deploy Worker on push
 ```
 
 ## Running locally
 
 Prerequisites: Python 3.12 + [uv](https://github.com/astral-sh/uv) for the pipeline; Node 20+ for the dashboard.
 
-**Dashboard (vanilla JS + Cloudflare Pages Function):**
+**Dashboard (single Cloudflare Worker):**
 
 ```sh
 npm install
-npm run dev   # serves http://127.0.0.1:8788
+npm run dev   # serves http://127.0.0.1:8787 (wrangler dev default)
 ```
 
-This boots `wrangler pages dev .` at the repo root and bundles `functions/api/yf.js` as the `/api/yf` Pages Function. The three CSVs in the repo root are served as static assets.
+This boots `wrangler dev` against `wrangler.jsonc`. The Worker serves `src/worker.js` and the asset binding pulls from `./public/`. Same `nodejs_compat`, same `define:` substitution, same `caches.default` semantics as production.
 
 **Pipeline (refresh the CSVs the dashboard reads):**
 
