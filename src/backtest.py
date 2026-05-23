@@ -30,12 +30,14 @@ Methodological caveats (see BACKTEST.md for the full discussion):
 from __future__ import annotations
 
 import pickle
+from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
 import yfinance as yf
+from scipy import stats
 
 # Repository root: this file lives at <repo>/src/backtest.py.
 ROOT = Path(__file__).resolve().parent.parent
@@ -352,3 +354,359 @@ def compute_snapshot_signal(
     projected = out[cols]
     assert isinstance(projected, pd.DataFrame)
     return projected
+
+
+# Number of quintile portfolios formed within each sector at each
+# snapshot. Locked at 5 (the spec); changing this would invalidate the
+# IC/Sharpe comparisons to standard quant convention.
+_N_QUINTILES = 5
+
+# Months in a year, used to annualize monthly statistics. Kept as a
+# constant so the formula reads `mean / std * sqrt(_MONTHS_PER_YEAR)`
+# rather than the magic `12` everywhere.
+_MONTHS_PER_YEAR = 12
+
+
+@dataclass
+class BacktestMetrics:
+    """Top-line statistics from a completed backtest run.
+
+    All return-based fields are net of the round-trip transaction cost
+    the backtest was configured with (see ``cost_bps``). The IC fields
+    are signal-side (deviation vs forward return) and unaffected by
+    transaction costs.
+    """
+
+    months: int
+    snapshots: int
+    cost_bps: float
+    mean_ic: float
+    ic_t_stat: float
+    ic_information_ratio: float
+    ls_mean_monthly_return: float
+    ls_std_monthly_return: float
+    ls_sharpe_annualized: float
+    ls_cumulative_return: float
+    ls_max_drawdown: float
+    ls_hit_rate: float
+
+
+def _spearman_ic(deviation: pd.Series, fwd_return: pd.Series) -> float:
+    """Spearman rank correlation between deviation and forward return.
+
+    Sign convention: negative deviation (cheap) should predict positive
+    forward return, so a working signal yields a NEGATIVE Spearman
+    coefficient. We do NOT flip the sign here — callers interpret the
+    sign themselves so the raw IC stays consistent across reports.
+
+    Returns NaN if either input has fewer than 3 non-null observations
+    or is constant (scipy raises in both cases).
+    """
+    paired = pd.concat([deviation, fwd_return], axis=1).dropna()
+    if len(paired) < 3:
+        return float("nan")
+    a = paired.iloc[:, 0].to_numpy(dtype=float)
+    b = paired.iloc[:, 1].to_numpy(dtype=float)
+    if np.std(a) == 0.0 or np.std(b) == 0.0:
+        return float("nan")
+    # scipy.stats.spearmanr returns a SignificanceResult namedtuple
+    # (correlation, pvalue); index 0 is the coefficient. Tuple-indexing
+    # avoids the .statistic attribute access that pandas-stubs can't
+    # narrow on the union return.
+    result = stats.spearmanr(a, b)
+    rho = np.asarray(result[0]).item()
+    return float(rho)
+
+
+def aggregate_snapshot(snapshot_df: pd.DataFrame) -> Dict[str, object]:
+    """Per-snapshot aggregation across sectors.
+
+    Within each sector: rank by deviation, form 5 equal-weight
+    quintiles, take Q1 (most-negative deviation = cheapest) as the long
+    leg, Q5 (most-positive = richest) as the short leg, compute
+    `long_ret - short_ret`. Across sectors: equal-weight the per-sector
+    long-short returns (sector neutralization — the model is sector-
+    relative so cross-sector aggregation must not let one sector
+    dominate). Also computes a per-sector Spearman IC and stores the
+    cross-sector mean IC.
+
+    Returns a dict with keys snapshot, n_sectors, ls_return (gross),
+    mean_ic, per_sector (list of dicts).
+    """
+    if snapshot_df.empty:
+        return {}
+    per_sector: List[Dict[str, object]] = []
+    for sector, sub in snapshot_df.groupby("Sector", sort=False):
+        # qcut with duplicates='drop' protects against ties at the
+        # quintile boundaries (a sector where many tickers share a
+        # deviation of exactly zero would otherwise raise). Sectors
+        # whose deviation distribution collapses to <5 distinct buckets
+        # are skipped — there's no meaningful long-short to form.
+        try:
+            sub = sub.copy()
+            sub["quintile"] = pd.qcut(
+                sub["deviation"], _N_QUINTILES, labels=False, duplicates="drop"
+            )
+        except ValueError:
+            continue
+        if sub["quintile"].nunique() < _N_QUINTILES:
+            continue
+        long_leg = float(sub[sub["quintile"] == 0]["fwd_return"].mean())
+        short_leg = float(sub[sub["quintile"] == _N_QUINTILES - 1]["fwd_return"].mean())
+        ls = long_leg - short_leg
+        dev_series = sub["deviation"]
+        ret_series = sub["fwd_return"]
+        assert isinstance(dev_series, pd.Series)
+        assert isinstance(ret_series, pd.Series)
+        ic = _spearman_ic(dev_series, ret_series)
+        per_sector.append(
+            {
+                "sector": str(sector),
+                "n": int(len(sub)),
+                "long_return": float(long_leg),
+                "short_return": float(short_leg),
+                "ls_return": ls,
+                "ic": ic,
+            }
+        )
+    if not per_sector:
+        return {}
+    ls_values: List[float] = [
+        float(p["ls_return"]) for p in per_sector if isinstance(p["ls_return"], float)
+    ]
+    ls_agg = float(np.mean(ls_values)) if ls_values else float("nan")
+    ic_values: List[float] = [
+        float(p["ic"])
+        for p in per_sector
+        if isinstance(p["ic"], float) and not np.isnan(p["ic"])
+    ]
+    ic_agg = float(np.mean(ic_values)) if ic_values else float("nan")
+    return {
+        "snapshot": snapshot_df["snapshot"].iloc[0],
+        "n_sectors": len(per_sector),
+        "ls_return": ls_agg,
+        "mean_ic": ic_agg,
+        "per_sector": per_sector,
+    }
+
+
+def run_backtest(
+    months: int = 36,
+    cost_bps: float = 10.0,
+    sa: Optional[pd.DataFrame] = None,
+    prices: Optional[pd.DataFrame] = None,
+) -> Tuple[pd.DataFrame, pd.DataFrame, BacktestMetrics]:
+    """End-to-end backtest. Returns (monthly_df, per_sector_df, metrics).
+
+    ``cost_bps`` is applied as a flat round-trip transaction cost on the
+    long-short return at every rebalance (Q1 long + Q5 short turns over
+    each month; ``cost_bps`` deducts the full round trip from the
+    gross return). ``sa`` and ``prices`` are injectable for testing;
+    when omitted they're loaded / fetched from disk.
+    """
+    if sa is None:
+        sa = load_sector_analysis()
+    if prices is None:
+        tickers = sa["Ticker"].astype(str).unique().tolist()
+        # Fetch a buffer of months+3 to give build_snapshot_dates room
+        # to enforce the t+1mo forward-window constraint cleanly.
+        end = pd.Timestamp.today().normalize()
+        start = end - pd.DateOffset(months=months + 3)
+        prices = fetch_prices(tickers, start, end)
+
+    assert isinstance(prices.index, pd.DatetimeIndex)
+    snaps = build_snapshot_dates(prices.index, months=months)
+    if not snaps:
+        raise RuntimeError(
+            f"No valid snapshot dates in price index covering {months} months."
+        )
+
+    panel = build_snapshot_panel(sa, prices)
+
+    monthly_rows: List[Dict[str, object]] = []
+    per_sector_rows: List[Dict[str, object]] = []
+    for snapshot_date in snaps:
+        forward_date = _next_trading_day(
+            prices.index, snapshot_date + pd.DateOffset(months=_FORWARD_MONTHS)
+        )
+        if forward_date is None:
+            continue
+        sig = compute_snapshot_signal(panel, prices, snapshot_date, forward_date)
+        agg = aggregate_snapshot(sig)
+        if not agg:
+            continue
+        monthly_rows.append(
+            {
+                "snapshot": agg["snapshot"],
+                "forward": forward_date,
+                "n_sectors": agg["n_sectors"],
+                "ls_return_gross": agg["ls_return"],
+                "mean_ic": agg["mean_ic"],
+            }
+        )
+        per_sector_value = agg["per_sector"]
+        if not isinstance(per_sector_value, list):
+            continue
+        for entry in per_sector_value:
+            row = dict(entry)
+            row["snapshot"] = agg["snapshot"]
+            per_sector_rows.append(row)
+
+    if not monthly_rows:
+        raise RuntimeError("Backtest produced zero usable snapshots.")
+
+    monthly_df = pd.DataFrame(monthly_rows).sort_values("snapshot").reset_index(drop=True)
+    per_sector_df = pd.DataFrame(per_sector_rows).sort_values(
+        ["snapshot", "sector"]
+    ).reset_index(drop=True)
+
+    # Apply round-trip transaction cost. 10 bps per round trip = 0.0010
+    # subtracted from each month's gross long-short return. We treat
+    # the strategy as fully turning over each month (a defensible
+    # worst-case for a monthly rebalance — in practice some names
+    # persist across rebalances, but quantifying that requires a name-
+    # level turnover tracker we deliberately keep out of scope).
+    cost_decimal = cost_bps / 10_000.0
+    monthly_df["ls_return_net"] = monthly_df["ls_return_gross"] - cost_decimal
+    monthly_df["cumulative_net"] = (1.0 + monthly_df["ls_return_net"]).cumprod()
+
+    metrics = _compute_metrics(monthly_df, per_sector_df, months, cost_bps)
+    return monthly_df, per_sector_df, metrics
+
+
+def _compute_metrics(
+    monthly_df: pd.DataFrame,
+    per_sector_df: pd.DataFrame,
+    months: int,
+    cost_bps: float,
+) -> BacktestMetrics:
+    """Roll up monthly returns + per-sector ICs into top-line metrics."""
+    net_ret = monthly_df["ls_return_net"].astype(float)
+    mean_ret = float(net_ret.mean())
+    std_ret = float(net_ret.std(ddof=1)) if len(net_ret) > 1 else 0.0
+    sharpe = (
+        mean_ret / std_ret * float(np.sqrt(_MONTHS_PER_YEAR))
+        if std_ret > 0
+        else float("nan")
+    )
+    cum_ret = float(monthly_df["cumulative_net"].iloc[-1]) - 1.0
+    cum_series = monthly_df["cumulative_net"].astype(float)
+    drawdown = cum_series / cum_series.cummax() - 1.0
+    max_dd = float(drawdown.min())
+    hit_rate = float((net_ret > 0).mean())
+
+    # IC stats: take the per-sector IC observations (sector-snapshot
+    # pairs) as the population. Mean / t-stat / IR are standard
+    # cross-sectional-model conventions.
+    ic_obs = per_sector_df["ic"].astype(float).dropna()
+    mean_ic = float(ic_obs.mean()) if len(ic_obs) else float("nan")
+    ic_std = float(ic_obs.std(ddof=1)) if len(ic_obs) > 1 else float("nan")
+    ic_t = (
+        mean_ic / (ic_std / float(np.sqrt(len(ic_obs))))
+        if len(ic_obs) > 1 and ic_std > 0
+        else float("nan")
+    )
+    # Information ratio uses the per-snapshot cross-sector mean IC
+    # series so it's a proper time-series ratio (matches Grinold's IR
+    # convention), not a within-sector ratio.
+    snapshot_ic = monthly_df["mean_ic"].astype(float).dropna()
+    if len(snapshot_ic) > 1 and snapshot_ic.std(ddof=1) > 0:
+        ic_ir = float(
+            snapshot_ic.mean()
+            / snapshot_ic.std(ddof=1)
+            * float(np.sqrt(_MONTHS_PER_YEAR))
+        )
+    else:
+        ic_ir = float("nan")
+
+    return BacktestMetrics(
+        months=months,
+        snapshots=len(monthly_df),
+        cost_bps=cost_bps,
+        mean_ic=mean_ic,
+        ic_t_stat=ic_t,
+        ic_information_ratio=ic_ir,
+        ls_mean_monthly_return=mean_ret,
+        ls_std_monthly_return=std_ret,
+        ls_sharpe_annualized=sharpe,
+        ls_cumulative_return=cum_ret,
+        ls_max_drawdown=max_dd,
+        ls_hit_rate=hit_rate,
+    )
+
+
+def cost_sensitivity(
+    monthly_df: pd.DataFrame, cost_bps_list: List[float]
+) -> pd.DataFrame:
+    """Apply each cost level to gross returns and report Sharpe / CumRet.
+
+    Recomputes net returns from the gross series (`ls_return_gross`)
+    rather than scaling the already-net series, so the table is
+    independent of the cost_bps the run was configured with.
+    """
+    gross = monthly_df["ls_return_gross"].astype(float)
+    rows: List[Dict[str, float]] = []
+    for cost_bps in cost_bps_list:
+        cost = cost_bps / 10_000.0
+        net = gross - cost
+        std = float(net.std(ddof=1)) if len(net) > 1 else 0.0
+        sharpe = (
+            float(net.mean()) / std * float(np.sqrt(_MONTHS_PER_YEAR))
+            if std > 0
+            else float("nan")
+        )
+        compounded = (net + 1.0).prod()
+        cum = float(compounded) - 1.0
+        rows.append(
+            {
+                "cost_bps": float(cost_bps),
+                "mean_monthly_return": float(net.mean()),
+                "sharpe_annualized": sharpe,
+                "cumulative_return": cum,
+                "hit_rate": float((net > 0).mean()),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def sector_summary(per_sector_df: pd.DataFrame) -> pd.DataFrame:
+    """Per-sector IC / LS-Sharpe summary across all snapshots.
+
+    Returns one row per sector with: snapshots observed, mean IC,
+    IC t-stat, long-short mean monthly return, long-short annualized
+    Sharpe, long-short hit rate. Sectors that never accumulated enough
+    snapshots to compute a t-stat have NaN there but still report the
+    mean.
+    """
+    rows: List[Dict[str, object]] = []
+    grouped = per_sector_df.groupby("sector", sort=True)
+    for sector, sub in grouped:
+        ic = sub["ic"].astype(float).dropna()
+        ls = sub["ls_return"].astype(float).dropna()
+        n_snap = int(len(sub))
+        mean_ic = float(ic.mean()) if len(ic) else float("nan")
+        ic_t = (
+            float(mean_ic / (ic.std(ddof=1) / np.sqrt(len(ic))))
+            if len(ic) > 1 and ic.std(ddof=1) > 0
+            else float("nan")
+        )
+        ls_mean = float(ls.mean()) if len(ls) else float("nan")
+        ls_std = float(ls.std(ddof=1)) if len(ls) > 1 else float("nan")
+        ls_sharpe = (
+            ls_mean / ls_std * float(np.sqrt(_MONTHS_PER_YEAR))
+            if ls_std and ls_std > 0
+            else float("nan")
+        )
+        hit = float((ls > 0).mean()) if len(ls) else float("nan")
+        rows.append(
+            {
+                "sector": str(sector),
+                "n_snapshots": n_snap,
+                "mean_ic": mean_ic,
+                "ic_t_stat": ic_t,
+                "ls_mean_monthly": ls_mean,
+                "ls_sharpe": ls_sharpe,
+                "ls_hit_rate": hit,
+            }
+        )
+    return pd.DataFrame(rows)
