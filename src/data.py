@@ -131,6 +131,105 @@ REQUEST_DELAY = 0.5  # seconds
 INDUSTRY_DELAY = 1.0  # seconds
 
 #######################
+# LOGGING / PROGRESS
+#######################
+# This script runs both interactively (TTY, where tqdm's in-place bar is
+# the right UX) and inside GitHub Actions (no TTY, where tqdm collapses
+# to a single line per minute and gives the operator zero signal of
+# liveness or failure point). Detect the environment up front and switch
+# the progress UX accordingly: tqdm for TTY, periodic timestamped log
+# lines + GHA log-grouping commands for CI.
+_GHA = os.environ.get("GITHUB_ACTIONS") == "true"
+_IS_TTY = sys.stderr.isatty()
+_USE_BAR = _IS_TTY and not _GHA
+
+
+def _log(msg: str) -> None:
+    ts = time.strftime("%H:%M:%S")
+    print(f"[{ts}] {msg}", flush=True)
+
+
+def _gha_group(name: str) -> None:
+    if _GHA:
+        print(f"::group::{name}", flush=True)
+
+
+def _gha_endgroup() -> None:
+    if _GHA:
+        print("::endgroup::", flush=True)
+
+
+def _gha_warning(msg: str) -> None:
+    if _GHA:
+        print(f"::warning::{msg}", flush=True)
+    else:
+        _log(f"WARN: {msg}")
+
+
+def _gha_error(msg: str) -> None:
+    if _GHA:
+        print(f"::error::{msg}", flush=True)
+    else:
+        _log(f"ERROR: {msg}")
+
+
+class ProgressReporter:
+    """tqdm-in-TTY, periodic-log-in-CI progress reporter.
+
+    Drop-in around long loops where stdout is the only signal of
+    liveness (GitHub Actions, Docker container logs, etc.). In CI mode
+    emits a structured progress line every ``every`` updates plus a
+    final summary; in TTY mode delegates to tqdm so the local UX is
+    unchanged.
+    """
+
+    def __init__(self, total: int, label: str, every: int = 25) -> None:
+        self.total: int = total
+        self.label: str = label
+        self.every: int = max(1, every)
+        self.done: int = 0
+        self.ok: int = 0
+        self.fail: int = 0
+        self.start: float = time.monotonic()
+        self.bar: Optional[Any] = None
+        if _USE_BAR:
+            self.bar = tqdm(total=total, desc=label, file=sys.stderr)
+        else:
+            _log(f"{label}: starting (total={total})")
+
+    def update(self, *, ok: bool = True) -> None:
+        self.done += 1
+        if ok:
+            self.ok += 1
+        else:
+            self.fail += 1
+        if self.bar is not None:
+            self.bar.update(1)
+            return
+        # CI path: log every `every` items + the final tick so the run
+        # has visible heartbeat without flooding the log.
+        if self.done % self.every == 0 or self.done == self.total:
+            elapsed = time.monotonic() - self.start
+            rate = self.done / elapsed if elapsed > 0 else 0.0
+            eta = (self.total - self.done) / rate if rate > 0 else 0.0
+            _log(
+                f"{self.label}: [{self.done}/{self.total}] "
+                f"ok={self.ok} fail={self.fail} "
+                f"elapsed={elapsed:.1f}s rate={rate:.1f}/s eta={eta:.1f}s"
+            )
+
+    def close(self) -> None:
+        if self.bar is not None:
+            self.bar.close()
+            return
+        elapsed = time.monotonic() - self.start
+        _log(
+            f"{self.label}: done [{self.done}/{self.total}] "
+            f"ok={self.ok} fail={self.fail} elapsed={elapsed:.1f}s"
+        )
+
+
+#######################
 # CODE
 #######################
 
@@ -218,17 +317,11 @@ async def get_metric_async(session: aiohttp.ClientSession, ticker: str, metric_n
                 if not isinstance(close, pd.Series):
                     return float("nan")
                 if metric_name == "rsi":
-                    rsi = calculate_rsi(close)
-                    print(f"{metric_name}: {rsi}")
-                    return rsi
+                    return calculate_rsi(close)
                 elif metric_name == "returnSD":
-                    sd = calculate_return_sd(close)
-                    print(f"{metric_name}: {sd}")
-                    return sd
+                    return calculate_return_sd(close)
                 elif metric_name == "maxDrawdown":
-                    max_drawdown = calculate_max_drawdown(close)
-                    print(f"{metric_name}: {max_drawdown}")
-                    return max_drawdown
+                    return calculate_max_drawdown(close)
 
             # logMarketCap is derived from the raw marketCap field rather
             # than fetched directly. ln(0) and ln(negative) are undefined;
@@ -236,7 +329,6 @@ async def get_metric_async(session: aiohttp.ClientSession, ticker: str, metric_n
             # path in process_data handles the missing row consistently.
             if metric_name == "logMarketCap":
                 raw_market_cap = stock.info.get("marketCap")
-                print(f"{metric_name}: raw marketCap={raw_market_cap}")
                 if raw_market_cap is None:
                     return float("nan")
                 try:
@@ -251,7 +343,6 @@ async def get_metric_async(session: aiohttp.ClientSession, ticker: str, metric_n
             # non-numeric values (e.g. None, strings) so coerce defensively to
             # honor the declared float contract.
             value = stock.info.get(metric_name)
-            print(f"{metric_name}: {value}")
             if value is None:
                 return float("nan")
             try:
@@ -283,23 +374,58 @@ async def get_company_metrics_async(session: aiohttp.ClientSession, company: str
 
     return company_data
 
-async def process_companies_async(companies: List[str], all_metrics: Dict[str, str]) -> List[Dict[str, Any]]:
-    """Process a batch of companies asynchronously."""
+async def process_companies_async(
+    companies: List[str],
+    all_metrics: Dict[str, str],
+    sector: str = "?",
+) -> List[Dict[str, Any]]:
+    """Process a batch of companies asynchronously.
+
+    Emits per-batch progress to stdout (heartbeat every 25 completions in CI,
+    a tqdm bar locally) plus a one-line per-failure summary so a CI operator
+    can identify which ticker is responsible without re-running with -v.
+    """
     async with aiohttp.ClientSession() as session:
-        tasks = []
-        for company in companies:
-            task = get_company_metrics_async(session, company, all_metrics)
-            tasks.append(task)
-        
-        # Use tqdm to show progress
-        company_data_list = []
-        for future in tqdm(asyncio.as_completed(tasks), total=len(tasks), desc="Processing companies"):
-            try:
-                result = await future
+        tasks = [
+            get_company_metrics_async(session, company, all_metrics)
+            for company in companies
+        ]
+        progress = ProgressReporter(
+            total=len(tasks),
+            label=f"[{sector}] companies",
+            every=25,
+        )
+        company_data_list: List[Dict[str, Any]] = []
+        try:
+            for future in asyncio.as_completed(tasks):
+                try:
+                    result = await future
+                except Exception as e:
+                    progress.update(ok=False)
+                    print(f"  [{sector}] company task raised: {e}", flush=True)
+                    continue
                 company_data_list.append(result)
-            except Exception as e:
-                print(f"Error processing company: {e}")
-    
+                # Per-company quality signal: count NaN metrics. A company with
+                # all-NaN metrics is yfinance returning nothing useful (delisted,
+                # rate-limited, ticker remap, etc.); surface those in the log so
+                # a partial run is diagnosable from the CI output alone.
+                ticker = result.get("Ticker", "?")
+                metric_values = [v for k, v in result.items() if k != "Ticker"]
+                nan_count = sum(
+                    1 for v in metric_values
+                    if v is None or (isinstance(v, float) and pd.isna(v))
+                )
+                metric_count = len(metric_values)
+                all_nan = metric_count > 0 and nan_count == metric_count
+                progress.update(ok=not all_nan)
+                if all_nan and not _USE_BAR:
+                    _log(
+                        f"  {sector}/{ticker}: all-nan "
+                        f"({nan_count}/{metric_count} metrics missing)"
+                    )
+        finally:
+            progress.close()
+
     return company_data_list
 
 # Russell 1000 constituents + GICS sector slugs are loaded once at import
@@ -354,7 +480,9 @@ async def process_sector_async(
             return None, None
 
         # Get raw data
-        company_data_list = await process_companies_async(companies, metrics["all_metrics"])
+        company_data_list = await process_companies_async(
+            companies, metrics["all_metrics"], sector=sector,
+        )
 
         # Convert to DataFrame
         df = pd.DataFrame(company_data_list)
@@ -471,33 +599,67 @@ async def analyze_sectors_async(sectors: List[str] = SECTORS) -> Optional[pd.Dat
     # we'd rather lose a small sector than a large one. The previous
     # alphabetical order had technology near the end and it was silently
     # wiped out by rate-limiting in production.
+    overall_start = time.monotonic()
+    _log(f"=== Sector refresh starting: {len(sectors)} sectors ===")
+    _log(f"runtime: GITHUB_ACTIONS={_GHA} TTY={_IS_TTY}")
+
     candidate_counts: Dict[str, int] = {}
     for sector in sectors:
         companies = await get_sector_companies(sector)
         candidate_counts[sector] = len(companies)
     ordered_sectors = sorted(sectors, key=lambda s: candidate_counts.get(s, 0), reverse=True)
 
+    _log("Processing order (largest sector first; preserves rate-limit budget for biggest):")
+    for i, s in enumerate(ordered_sectors, 1):
+        _log(f"  {i:2d}/{len(ordered_sectors)} {s} ({candidate_counts[s]} companies)")
+
     all_data: List[pd.DataFrame] = []
     all_data_full: List[pd.DataFrame] = []
     failed_sectors: List[Tuple[str, int]] = []
 
-    for sector in tqdm(ordered_sectors, desc="Processing sectors"):
+    for sector_idx, sector in enumerate(ordered_sectors, 1):
         await asyncio.sleep(INDUSTRY_DELAY)  # Rate limiting between sectors
+        sector_start = time.monotonic()
+        header = (
+            f"Sector {sector_idx}/{len(ordered_sectors)}: {sector} "
+            f"({candidate_counts[sector]} companies)"
+        )
+        _gha_group(header)
+        _log(f">>> {header}")
         full_data, simple_data = await process_sector_async(sector, METRICS)
+        sector_elapsed = time.monotonic() - sector_start
         if simple_data is None or simple_data.empty:
             failed_sectors.append((sector, candidate_counts[sector]))
-            continue
-        all_data.append(simple_data)
-        if full_data is not None:
-            all_data_full.append(full_data)
+            _log(
+                f"<<< {sector}: 0 surviving rows from {candidate_counts[sector]} "
+                f"candidates, elapsed={sector_elapsed:.1f}s"
+            )
+            _gha_warning(
+                f"{sector}: 0 surviving rows from {candidate_counts[sector]} candidates"
+            )
+        else:
+            n_rows = len(simple_data)
+            n_full = len(full_data) if full_data is not None else 0
+            _log(
+                f"<<< {sector}: {n_rows} rows after filter "
+                f"(full={n_full}, from {candidate_counts[sector]} candidates) "
+                f"elapsed={sector_elapsed:.1f}s"
+            )
+            all_data.append(simple_data)
+            if full_data is not None:
+                all_data_full.append(full_data)
+        _gha_endgroup()
+
+    overall_elapsed = time.monotonic() - overall_start
 
     if failed_sectors:
-        print("\n!!! SECTOR FAILURES — yielded zero surviving rows !!!")
+        _gha_error(f"{len(failed_sectors)} sector(s) yielded zero surviving rows")
+        _log("SECTOR FAILURES (yielded zero surviving rows):")
         for sector, n_candidates in failed_sectors:
-            print(f"  {sector}: 0 rows from {n_candidates} candidates")
+            _log(f"  {sector}: 0 rows from {n_candidates} candidates")
 
     if not all_data:
-        print("No data was collected successfully.")
+        _log("No data was collected successfully.")
         sys.exit(1)
 
     # Combine all sector data
@@ -507,6 +669,11 @@ async def analyze_sectors_async(sectors: List[str] = SECTORS) -> Optional[pd.Dat
     # Save to CSV
     combined_data.to_csv("sector_analysis.csv", index=False)
     combined_data_full.to_csv("sector_analysis_full.csv", index=False)
+
+    _log(
+        f"=== Refresh complete: {len(combined_data)} rows across {len(all_data)} "
+        f"sectors, total elapsed {overall_elapsed:.1f}s ==="
+    )
 
     # Partial-success: write what we got so a follow-up can patch the gap,
     # but exit non-zero so CI / the operator notices instead of pushing

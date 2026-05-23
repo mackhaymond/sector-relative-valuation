@@ -2,13 +2,24 @@
 name: Update Sector Analysis Data
 on:
   workflow_dispatch:
-  # schedule:
-    # - cron: 0 3 */2 * *
+  schedule:
+    # Monthly at 03:00 UTC on the 1st. yfinance fundamentals are revised
+    # on earnings cadence (quarterly) so a monthly refresh keeps the
+    # dashboard in sync with the underlying data without burning CI
+    # budget on no-op runs.
+    - cron: '0 3 1 * *'
 permissions:
   contents: write
 jobs:
   run-and-commit:
     runs-on: ubuntu-latest
+    env:
+      # Force unbuffered stdout/stderr so the per-sector / per-company
+      # progress lines emitted by src/data.py appear in real time in the
+      # Actions log rather than at job end. Combined with `python -u`
+      # below this gives belt-and-suspenders coverage against any
+      # buffering layer that re-emerges.
+      PYTHONUNBUFFERED: "1"
     steps:
     - name: Checkout repository
       uses: actions/checkout@v3
@@ -24,10 +35,10 @@ jobs:
       run: uv sync --frozen
 
     - name: Run data.py
-      run: uv run python src/data.py
+      run: uv run python -u src/data.py
 
     - name: Run generate_weights.py
-      run: uv run python src/generate_weights.py
+      run: uv run python -u src/generate_weights.py
 
     - name: Move CSVs into ./public/ (Worker asset directory)
       run: |
@@ -50,7 +61,11 @@ jobs:
         git config --global user.name 'github-actions[bot]'
         git config --global user.email 'github-actions[bot]@users.noreply.github.com'
         git add public/sector_analysis.csv public/sector_analysis_full.csv public/weights.csv
-        git commit -m 'Update sector analysis data'
-        git push
+        if git diff --cached --quiet; then
+          echo "No data changes to commit; skipping push."
+        else
+          git commit -m 'data: monthly refresh of sector analysis CSVs'
+          git push
+        fi
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
