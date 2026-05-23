@@ -787,10 +787,29 @@ function formatNumber(n, digits) {
   return n.toFixed(digits);
 }
 
+const REPO_URL = "https://github.com/mackhaymond/sector-relative-valuation";
+
 function renderBacktestFooter() {
   const el = document.getElementById("backtest-footer");
   if (!el) return;
-  el.innerHTML = "";
+  el.innerHTML = `
+    <h4>36-month PIT backtest</h4>
+    <p>
+      May 2023 \u2013 May 2026, Russell 1000, monthly rebalance, 10 bps round-trip cost:
+      mean IC <strong>\u22120.013</strong> (t = \u22121.17),
+      long-short Sharpe <strong>0.05</strong>,
+      cumulative return <strong>+0.43%</strong>.
+    </p>
+    <p>The deviation signal does <strong>not</strong> predict 1-month forward returns at this universe and window.</p>
+    <p class="footer-links">
+      Methodology and limitations:
+      <a href="${REPO_URL}/blob/main/BACKTEST.md" target="_blank" rel="noopener">BACKTEST.md</a>
+      &middot;
+      <a href="${REPO_URL}/blob/main/backtest_artifacts/cumulative_long_short_return.png" target="_blank" rel="noopener">Cumulative-return chart</a>
+      &middot;
+      <a href="${REPO_URL}" target="_blank" rel="noopener">Source</a>
+    </p>
+  `;
 }
 
 document.addEventListener("DOMContentLoaded", () => {
