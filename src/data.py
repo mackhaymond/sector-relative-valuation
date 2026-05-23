@@ -54,12 +54,15 @@ X3_QUALITY_METRICS = {
 
 # Category 5: Size Metrics
 #
-# TotalAssets was previously collected here but yfinance does not expose
-# it on the ``info`` dict (it lives on the balance sheet endpoint), so
-# it came back 100% null. Dropped.
+# Single-metric composite: ``log(marketCap)``. Raw market cap spans 6+
+# orders of magnitude inside a single sector; z-scoring the level lets
+# the 2-3 largest names dominate the factor. Log-cap is roughly Gaussian
+# within sector and is the standard SMB construction. EnterpriseValue
+# and TotalAssets (the other two original X5 fields) were 0.95+
+# correlated with marketCap or 100% null, so neither contributed
+# meaningful independent information; both were dropped.
 X5_SIZE_METRICS = {
-    "MarketCap": "marketCap",               # Market Capitalization
-    "EnterpriseValue": "enterpriseValue"    # Enterprise Value
+    "LogMarketCap": "logMarketCap",         # ln(marketCap); derived in get_metric_async
 }
 
 # Category 6: Growth Metrics
@@ -216,6 +219,23 @@ async def get_metric_async(session: aiohttp.ClientSession, ticker: str, metric_n
                     print(f"{metric_name}: {max_drawdown}")
                     return max_drawdown
 
+            # logMarketCap is derived from the raw marketCap field rather
+            # than fetched directly. ln(0) and ln(negative) are undefined;
+            # guard them explicitly and return NaN so the mean-imputation
+            # path in process_data handles the missing row consistently.
+            if metric_name == "logMarketCap":
+                raw_market_cap = stock.info.get("marketCap")
+                print(f"{metric_name}: raw marketCap={raw_market_cap}")
+                if raw_market_cap is None:
+                    return float("nan")
+                try:
+                    value = float(raw_market_cap)
+                except (TypeError, ValueError):
+                    return float("nan")
+                if value <= 0 or not np.isfinite(value):
+                    return float("nan")
+                return float(np.log(value))
+
             # Handle standard yfinance metrics. yfinance occasionally returns
             # non-numeric values (e.g. None, strings) so coerce defensively to
             # honor the declared float contract.
@@ -361,7 +381,12 @@ async def process_data(
     df = df.replace([np.inf, -np.inf], np.nan)
 
     # Calculate z-scores for each metric group
-    for metric_group in ["x1_risk_metrics", "x2_momentum_metrics", "x3_quality_metrics"]:
+    for metric_group in [
+        "x1_risk_metrics",
+        "x2_momentum_metrics",
+        "x3_quality_metrics",
+        "x5_size_metrics",
+    ]:
         for metric_name in metrics[metric_group].keys():
             if metric_name in df.columns:
                 df.loc[:, f"{metric_name}_ZScore"] = zscore(df[metric_name].fillna(df[metric_name].mean()),
@@ -373,27 +398,32 @@ async def process_data(
         df = df.dropna(subset=["PE"]).copy()  # Create explicit copy
         # Calculate z-score only for remaining companies
         df.loc[:, "PE_ZScore"] = zscore(df["PE"], nan_policy='omit')
-    
+
     # Calculate composite scores for each category
-    df.loc[:, "Risk_Score"] = df[[f"{metric}_ZScore" for metric in X1_RISK_METRICS.keys() 
+    df.loc[:, "Risk_Score"] = df[[f"{metric}_ZScore" for metric in X1_RISK_METRICS.keys()
                           if f"{metric}_ZScore" in df.columns]].mean(axis=1)
-    df.loc[:, "Momentum_Score"] = df[[f"{metric}_ZScore" for metric in X2_MOMENTUM_METRICS.keys() 
+    df.loc[:, "Momentum_Score"] = df[[f"{metric}_ZScore" for metric in X2_MOMENTUM_METRICS.keys()
                             if f"{metric}_ZScore" in df.columns]].mean(axis=1)
-    df.loc[:, "Quality_Score"] = df[[f"{metric}_ZScore" for metric in X3_QUALITY_METRICS.keys() 
+    df.loc[:, "Quality_Score"] = df[[f"{metric}_ZScore" for metric in X3_QUALITY_METRICS.keys()
                              if f"{metric}_ZScore" in df.columns]].mean(axis=1)
-    
-    # Filter out data points with extreme z-scores (>3 standard deviations)
+    df.loc[:, "Size_Score"] = df[[f"{metric}_ZScore" for metric in X5_SIZE_METRICS.keys()
+                          if f"{metric}_ZScore" in df.columns]].mean(axis=1)
+
+    # Filter out data points with extreme z-scores. The threshold is
+    # applied to every composite so that one runaway factor cannot
+    # silently rescue an obviously-broken row.
     mask = (abs(df["Risk_Score"]) <= 2.5) & \
            (abs(df["Momentum_Score"]) <= 2.5) & \
            (abs(df["Quality_Score"]) <= 2.5) & \
+           (abs(df["Size_Score"]) <= 2.5) & \
            (abs(df["PE_ZScore"]) <= 2.5)
     df_filtered = df[mask]
     # df[boolean_mask] returns a DataFrame in this context; narrow for pyright.
     assert isinstance(df_filtered, pd.DataFrame)
     df = df_filtered
-    
+
     # Keep only essential columns
-    columns_to_keep = ["Sector", "Ticker", "Risk_Score", "Momentum_Score", "Quality_Score"]
+    columns_to_keep = ["Sector", "Ticker", "Risk_Score", "Momentum_Score", "Quality_Score", "Size_Score"]
     if "PE" in df.columns:
         columns_to_keep.extend(["PE", "PE_ZScore"])
 
