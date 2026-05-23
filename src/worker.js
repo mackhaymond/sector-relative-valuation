@@ -1,29 +1,23 @@
-// Runtime shim for yahoo-finance2's transitive @deno/shim-deno dependency,
-// which references __dirname / __filename at module init. Workers ESM has
-// neither. Pages Functions don't support wrangler.jsonc's `define:` block
-// (that's a Workers-only feature), so the shim has to run before the
-// dynamic import below evaluates. Setting them on globalThis is enough —
-// the shim package reads from the global, not from a closure.
-globalThis.__dirname = globalThis.__dirname || "/";
-globalThis.__filename = globalThis.__filename || "/index.js";
+import YahooFinance from "yahoo-finance2";
 
 /*
- * GET /api/yf?ticker=SYMBOL
+ * Cloudflare Worker entry point for sector-relative-valuation.
  *
- * Proxies Yahoo Finance for the Individual Stock Analysis tab. Returns
- *   { ticker, fetchedAt, cached, quote, summary, history }
- * where `summary` is the union of the requested quoteSummary modules
- * and `history` is the trailing one-year daily OHLC array.
+ * Routing: `run_worker_first = ["/api/*"]` in wrangler.jsonc routes only
+ * /api/* paths through this Worker. Every other path is served straight
+ * from the [assets] binding (./public/) and never invokes the isolate.
  *
- * Caching: Cloudflare's edge cache via caches.default, keyed on
- * `${origin}/__cache/yf/${ticker}`. Successful responses live for
- * CACHE_TTL_FUNDAMENTALS seconds (default 300 = 5 minutes). The
- * cache.put is wrapped in waitUntil so the response is not blocked
- * on the write.
+ * GET  /api/yf?ticker=SYMBOL  -> proxies Yahoo Finance, returns
+ *   { ticker, fetchedAt, cached, quote, summary, history }.
+ * OPTIONS /api/yf             -> CORS preflight (24h max-age).
+ * Anything else under /api/*  -> 404 with a structured JSON error.
  *
- * Failure modes: 400 for a malformed ticker, 404 for an unknown
- * symbol, 502 for upstream Yahoo errors. Error strings come from
- * upstream verbatim; no stack traces are leaked.
+ * Edge cache: caches.default keyed on ${origin}/__cache/yf/${ticker};
+ * cache.put wrapped in ctx.waitUntil so the response isn't blocked on
+ * the write. TTL = env.CACHE_TTL_FUNDAMENTALS seconds (default 300).
+ *
+ * Errors: 400 for missing/invalid ticker, 404 for unknown symbol,
+ * 502 for upstream failures. Stack traces never leak.
  */
 
 const TICKER_PATTERN = /^[A-Z0-9.\-^=]{1,12}$/;
@@ -35,15 +29,9 @@ const SUMMARY_MODULES = [
   "summaryDetail",
 ];
 
-let yahooFinancePromise;
-async function getYahooFinance() {
-  if (!yahooFinancePromise) {
-    yahooFinancePromise = import("yahoo-finance2").then(
-      (mod) => new mod.default({ suppressNotices: ["yahooSurvey", "ripHistorical"] }),
-    );
-  }
-  return yahooFinancePromise;
-}
+const yahooFinance = new YahooFinance({
+  suppressNotices: ["yahooSurvey", "ripHistorical"],
+});
 
 function jsonResponse(body, init = {}) {
   const headers = new Headers(init.headers || {});
@@ -60,7 +48,7 @@ function buildCacheKey(url, ticker) {
   return new Request(`${url.origin}/__cache/yf/${ticker}`, { method: "GET" });
 }
 
-export async function onRequestGet({ request, env, waitUntil }) {
+async function handleYf(request, env, ctx) {
   const url = new URL(request.url);
   const rawTicker = (url.searchParams.get("ticker") || "").trim().toUpperCase();
   if (!rawTicker) return errorResponse(400, "Missing ?ticker= query parameter");
@@ -84,7 +72,6 @@ export async function onRequestGet({ request, env, waitUntil }) {
   let summary;
   let history;
   try {
-    const yahooFinance = await getYahooFinance();
     [quote, summary, history] = await Promise.all([
       yahooFinance.quote(rawTicker),
       yahooFinance.quoteSummary(rawTicker, { modules: SUMMARY_MODULES }),
@@ -118,16 +105,11 @@ export async function onRequestGet({ request, env, waitUntil }) {
     },
   );
 
-  if (typeof waitUntil === "function") {
-    waitUntil(cache.put(cacheKey, cacheable));
-  } else {
-    await cache.put(cacheKey, cacheable);
-  }
-
+  ctx.waitUntil(cache.put(cacheKey, cacheable));
   return response;
 }
 
-export async function onRequestOptions() {
+function handleOptions() {
   return new Response(null, {
     status: 204,
     headers: {
@@ -138,3 +120,18 @@ export async function onRequestOptions() {
     },
   });
 }
+
+export default {
+  async fetch(request, env, ctx) {
+    const url = new URL(request.url);
+    if (url.pathname === "/api/yf") {
+      if (request.method === "GET") return handleYf(request, env, ctx);
+      if (request.method === "OPTIONS") return handleOptions();
+      return new Response(null, {
+        status: 405,
+        headers: { Allow: "GET, OPTIONS" },
+      });
+    }
+    return errorResponse(404, `Unknown API path: ${url.pathname}`);
+  },
+};

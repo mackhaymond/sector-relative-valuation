@@ -1,11 +1,26 @@
 {
-  "$schema": "https://unpkg.com/wrangler@latest/config-schema.json",
+  "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "sector-relative-valuation",
+  "main": "./src/worker.js",
   "compatibility_date": "2026-05-22",
   "compatibility_flags": ["nodejs_compat"],
-  "pages_build_output_dir": ".",
+  "workers_dev": true,
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "not_found_handling": "none",
+    "run_worker_first": ["/api/*"]
+  },
+  "define": {
+    "__dirname": "\"/\"",
+    "__filename": "\"/index.js\""
+  },
   "vars": {
     "CACHE_TTL_FUNDAMENTALS": "300",
     "CACHE_TTL_HISTORICAL": "3600"
+  },
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
   }
 }

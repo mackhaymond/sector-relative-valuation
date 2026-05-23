@@ -1,12 +1,13 @@
 {
   "name": "sector-relative-valuation-web",
-  "version": "0.1.0",
-  "description": "Static SPA + Cloudflare Pages Function proxy for the sector-relative valuation dashboard.",
+  "version": "0.2.0",
+  "description": "Cloudflare Worker (Static Assets + yahoo-finance2 proxy) for the sector-relative valuation dashboard.",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wrangler pages dev . --port 8788 --ip 127.0.0.1",
-    "deploy": "wrangler pages deploy ."
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail"
   },
   "dependencies": {
     "yahoo-finance2": "^3.14.1"
