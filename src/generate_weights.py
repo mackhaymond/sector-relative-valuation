@@ -1,5 +1,5 @@
 import pandas as pd
-from sklearn.linear_model import Ridge
+from sklearn.linear_model import RidgeCV
 from sklearn.preprocessing import StandardScaler
 import numpy as np
 
@@ -14,10 +14,19 @@ FACTOR_COLUMNS = [
     'Growth_Score',
 ]
 
+# Half-decade alpha grid that brackets the sensible regularization
+# range for a 5-predictor, 30-150-row sector fit. 0.01 -> nearly OLS
+# (use this when the in-sector fit is well-conditioned); 100.0 ->
+# heavy shrinkage toward zero (use when the predictors are strongly
+# collinear). RidgeCV picks the alpha that minimizes the k-fold CV
+# error on this sector's standardized cross-section.
+ALPHA_GRID = [0.01, 0.1, 1.0, 10.0, 100.0]
+
 file_path = 'sector_analysis.csv'
 data = pd.read_csv(file_path)
 
 sector_weights: dict[str, dict[str, float]] = {}
+sector_alphas: dict[str, float] = {}
 
 for sector in data['Sector'].unique():
     sector_data = data[data['Sector'] == sector]
@@ -28,7 +37,18 @@ for sector in data['Sector'].unique():
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
 
-    ridge_model = Ridge(alpha=1.0, fit_intercept=False)
+    # cv = min(5, n-1) keeps the smallest sectors (energy at n ~30
+    # after the outlier filter) on a clean k-fold while letting larger
+    # sectors enjoy the full 5-fold. n-1 is the lower bound below
+    # which RidgeCV's k-fold cannot form k disjoint test folds.
+    n = X_scaled.shape[0]
+    cv_folds = max(2, min(5, n - 1))
+
+    ridge_model = RidgeCV(
+        alphas=ALPHA_GRID,
+        fit_intercept=False,
+        cv=cv_folds,
+    )
     ridge_model.fit(X_scaled, y)
 
     coefficients = ridge_model.coef_
@@ -38,6 +58,7 @@ for sector in data['Sector'].unique():
         column: float(weight)
         for column, weight in zip(FACTOR_COLUMNS, normalized_weights)
     }
+    sector_alphas[sector] = float(ridge_model.alpha_)
 
 for sector in sector_weights:
     sector_mask = data['Sector'] == sector
