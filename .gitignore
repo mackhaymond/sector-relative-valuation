@@ -33,8 +33,10 @@ htmlcov/
 *.swp
 *.swo
 
-# Node (only present if tooling is added later)
+# Node + Cloudflare tooling
 node_modules/
+dist/
+.wrangler-tmp/
 
 # Local-only configs
 *.local

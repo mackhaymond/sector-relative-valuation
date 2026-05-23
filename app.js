@@ -787,6 +787,479 @@ function formatNumber(n, digits) {
   return n.toFixed(digits);
 }
 
+/*
+ * Tab 3: Individual Stock Analysis.
+ *
+ * Fetches a single ticker's live fundamentals via /api/yf, computes
+ * per-category z-scores against the sector cross-section in
+ * sector_analysis_full.csv, builds the composite z-score against the
+ * sector weights in weights.csv (with category_is_missing renormalization),
+ * fits a sector-local OLS line of PE vs composite, and renders the
+ * scatter + deviation bar + info card. Port of analyze_individual_stock
+ * at src/dashboard.py:880.
+ *
+ * Honesty pattern: categories whose underlying metrics ALL came back
+ * unresolved are flagged as 'unavailable' in the info card rather than
+ * substituted with a 0.0 z-score that would silently read as
+ * 'exactly average'. Same for actual P/E when Yahoo returned null.
+ */
+
+const CATEGORY_TO_METRICS = {
+  Risk_Score: ["MaxDrawdown", "DebtToEquity", "ReturnSD"],
+  Momentum_Score: ["PriceChange12M", "RSI", "EarningsGrowth"],
+  Quality_Score: ["ROE", "ROA", "OperatingMargin", "EBITDAMargin"],
+  Size_Score: ["LogMarketCap"],
+  Growth_Score: ["RevenueGrowth"],
+};
+
+const CATEGORY_LABEL = {
+  Risk_Score: "Risk Score",
+  Momentum_Score: "Momentum Score",
+  Quality_Score: "Quality Score",
+  Size_Score: "Size Score",
+  Growth_Score: "Growth Score",
+};
+
+function sectorSlugFromName(name) {
+  return (name || "").toString().toLowerCase().replace(/\s+/g, "-");
+}
+
+// 30-period SIMPLE rolling-mean RSI - mirrors src/data.py:calculate_rsi.
+// Wilder's exponential smoothing would produce a different value, which
+// would mis-z-score against the sector cross-section that was built
+// with the simple rolling-mean variant.
+function calculateRSI(closes, periods = 30) {
+  if (!Array.isArray(closes) || closes.length <= periods) return NaN;
+  const gains = new Array(closes.length - 1);
+  const losses = new Array(closes.length - 1);
+  for (let i = 1; i < closes.length; i++) {
+    const delta = closes[i] - closes[i - 1];
+    gains[i - 1] = delta > 0 ? delta : 0;
+    losses[i - 1] = delta < 0 ? -delta : 0;
+  }
+  if (gains.length < periods) return NaN;
+  let gainSum = 0;
+  let lossSum = 0;
+  for (let i = gains.length - periods; i < gains.length; i++) {
+    gainSum += gains[i];
+    lossSum += losses[i];
+  }
+  const avgGain = gainSum / periods;
+  const avgLoss = lossSum / periods;
+  if (avgLoss === 0) return 100;
+  const rs = avgGain / avgLoss;
+  return 100 - 100 / (1 + rs);
+}
+
+function calculateReturnSD(closes) {
+  if (!Array.isArray(closes) || closes.length < 2) return NaN;
+  const returns = [];
+  for (let i = 1; i < closes.length; i++) {
+    if (closes[i - 1] === 0 || !Number.isFinite(closes[i - 1])) continue;
+    returns.push(closes[i] / closes[i - 1] - 1);
+  }
+  if (returns.length < 2) return NaN;
+  const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
+  const variance =
+    returns.reduce((acc, r) => acc + (r - mean) ** 2, 0) / (returns.length - 1);
+  return Math.sqrt(variance);
+}
+
+function calculateMaxDrawdown(closes) {
+  if (!Array.isArray(closes) || closes.length < 2) return NaN;
+  let peak = closes[0];
+  let maxDD = 0;
+  for (const px of closes) {
+    if (!Number.isFinite(px)) continue;
+    if (px > peak) peak = px;
+    if (peak > 0) {
+      const dd = (px - peak) / peak;
+      if (dd < maxDD) maxDD = dd;
+    }
+  }
+  return Math.abs(maxDD);
+}
+
+function extractMetricsFromUpstream(payload) {
+  const summary = payload.summary || {};
+  const quote = payload.quote || {};
+  const history = Array.isArray(payload.history) ? payload.history : [];
+
+  const fin = summary.financialData || {};
+  const dks = summary.defaultKeyStatistics || {};
+  const price = summary.price || {};
+  const detail = summary.summaryDetail || {};
+
+  const closes = history
+    .map((h) => Number(h && h.close))
+    .filter(Number.isFinite);
+
+  const marketCap = Number(
+    price.marketCap ?? quote.marketCap ?? detail.marketCap ?? NaN,
+  );
+  const logMarketCap =
+    Number.isFinite(marketCap) && marketCap > 0 ? Math.log(marketCap) : NaN;
+
+  const peCandidates = [
+    quote.trailingPE,
+    detail.trailingPE,
+    dks.trailingEps && quote.regularMarketPrice
+      ? quote.regularMarketPrice / dks.trailingEps
+      : undefined,
+    quote.forwardPE,
+    dks.forwardPE,
+  ];
+  const actualPE = Number(peCandidates.find((v) => Number.isFinite(Number(v))));
+
+  return {
+    metrics: {
+      MaxDrawdown: closes.length ? calculateMaxDrawdown(closes) : NaN,
+      DebtToEquity: Number(fin.debtToEquity ?? NaN),
+      ReturnSD: closes.length ? calculateReturnSD(closes) : NaN,
+      PriceChange12M: Number(
+        dks["52WeekChange"] ?? quote.fiftyTwoWeekChangePercent ?? NaN,
+      ),
+      RSI: closes.length ? calculateRSI(closes) : NaN,
+      EarningsGrowth: Number(fin.earningsGrowth ?? NaN),
+      ROE: Number(fin.returnOnEquity ?? NaN),
+      ROA: Number(fin.returnOnAssets ?? NaN),
+      OperatingMargin: Number(fin.operatingMargins ?? NaN),
+      EBITDAMargin: Number(
+        fin.ebitdaMargins ?? dks.ebitdaMargins ?? detail.ebitdaMargins ?? NaN,
+      ),
+      LogMarketCap: logMarketCap,
+      RevenueGrowth: Number(fin.revenueGrowth ?? NaN),
+    },
+    actualPE: Number.isFinite(actualPE) ? actualPE : NaN,
+    sectorRaw: (summary.assetProfile && summary.assetProfile.sector) || quote.sector || "",
+    longName: price.longName || price.shortName || quote.longName || quote.shortName || payload.ticker,
+  };
+}
+
+// Mirrors src/dashboard.py:_zscore_against_sector. Uses sample std
+// (ddof=1) - matches pandas Series.std() default rather than scipy's
+// zscore default of ddof=0. The Python dashboard makes the same choice.
+function zScoreAgainstSector(rows, metricName, value) {
+  if (!Number.isFinite(value) || !Array.isArray(rows) || rows.length === 0) return NaN;
+  const values = rows.map((r) => Number(r[metricName])).filter(Number.isFinite);
+  if (values.length < 2) return NaN;
+  const mean = values.reduce((a, b) => a + b, 0) / values.length;
+  const variance =
+    values.reduce((acc, v) => acc + (v - mean) ** 2, 0) / (values.length - 1);
+  const std = Math.sqrt(variance);
+  if (std === 0) return NaN;
+  return (value - mean) / std;
+}
+
+const individualTab = {
+  initialized: false,
+  fullRows: null,
+  weightsBySector: null,
+
+  async init() {
+    if (this.initialized) return;
+    this.initialized = true;
+    const [fullRows, weightsRows] = await Promise.all([
+      loadCsv("/sector_analysis_full.csv"),
+      loadCsv("/weights.csv"),
+    ]);
+    this.fullRows = fullRows.filter((r) => r && r.Sector);
+    this.weightsBySector = new Map(
+      weightsRows.filter((r) => r && r.Sector).map((r) => [r.Sector, r]),
+    );
+    this.bindEvents();
+  },
+
+  bindEvents() {
+    const button = document.getElementById("analyze-button");
+    const input = document.getElementById("ticker-input");
+    if (!button || !input) return;
+    button.addEventListener("click", () => this.analyze());
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        this.analyze();
+      }
+    });
+  },
+
+  setStatus(html, isError = false) {
+    const el = document.getElementById("analysis-status");
+    if (!el) return;
+    el.innerHTML = html;
+    el.classList.toggle("status-error", isError);
+  },
+
+  setError(ticker, message) {
+    this.setStatus(
+      `Error analyzing <span class="status-success-ticker">${htmlEscape(ticker)}</span>: ${htmlEscape(message)}`,
+      true,
+    );
+    Plotly.purge(document.getElementById("individual-scatter"));
+    Plotly.purge(document.getElementById("individual-deviation"));
+    document.getElementById("individual-info").innerHTML = "";
+  },
+
+  async analyze() {
+    const input = document.getElementById("ticker-input");
+    const ticker = (input.value || "").trim().toUpperCase();
+    if (!ticker) {
+      this.setStatus("Enter a ticker symbol above and click Analyze.");
+      return;
+    }
+    this.setStatus(`Fetching <span class="status-success-ticker">${htmlEscape(ticker)}</span>...`);
+
+    let payload;
+    try {
+      const res = await fetch(`/api/yf?ticker=${encodeURIComponent(ticker)}`);
+      payload = await res.json();
+      if (!res.ok) {
+        this.setError(ticker, payload.error || `Upstream error (HTTP ${res.status})`);
+        return;
+      }
+    } catch (err) {
+      this.setError(ticker, err.message || "Network error");
+      return;
+    }
+
+    const { metrics, actualPE, sectorRaw, longName } = extractMetricsFromUpstream(payload);
+    const sectorSlug = sectorSlugFromName(sectorRaw);
+    if (!sectorSlug || !this.weightsBySector.has(sectorSlug)) {
+      this.setError(ticker, `Could not determine sector for ${ticker} (got "${sectorRaw}")`);
+      return;
+    }
+
+    const sectorRows = this.fullRows.filter((r) => r.Sector === sectorSlug);
+    if (sectorRows.length === 0) {
+      this.setError(ticker, `No reference data for sector "${sectorSlug}"`);
+      return;
+    }
+    const sectorWeights = this.weightsBySector.get(sectorSlug);
+
+    const categoryScores = {};
+    const categoryIsMissing = {};
+    for (const [category, metricNames] of Object.entries(CATEGORY_TO_METRICS)) {
+      const zs = [];
+      for (const m of metricNames) {
+        const z = zScoreAgainstSector(sectorRows, m, metrics[m]);
+        if (Number.isFinite(z)) zs.push(z);
+      }
+      if (zs.length > 0) {
+        categoryScores[category] = zs.reduce((a, b) => a + b, 0) / zs.length;
+        categoryIsMissing[category] = false;
+      } else {
+        categoryScores[category] = 0;
+        categoryIsMissing[category] = true;
+      }
+    }
+
+    if (Object.values(categoryIsMissing).every((v) => v)) {
+      this.setError(ticker, "no fundamental data resolved from Yahoo Finance");
+      return;
+    }
+
+    let weightedSum = 0;
+    let totalWeight = 0;
+    for (const category of Object.keys(CATEGORY_TO_METRICS)) {
+      if (categoryIsMissing[category]) continue;
+      const w = Number(sectorWeights[category]) / 100;
+      if (!Number.isFinite(w)) continue;
+      weightedSum += categoryScores[category] * w;
+      totalWeight += w;
+    }
+    const compositeZ =
+      totalWeight > 0
+        ? weightedSum / totalWeight
+        : Object.values(categoryScores).reduce((a, b) => a + b, 0) /
+          Object.keys(categoryScores).length;
+
+    const sectorPlotRows = this.computeSectorPlotRows(sectorRows, sectorWeights);
+    const xs = sectorPlotRows.map((r) => r.composite);
+    const ys = sectorPlotRows.map((r) => r.pe);
+    const fit = linearFit(xs, ys);
+    const predictedPE = fit ? fit.predict(compositeZ) : NaN;
+    const peIsMissing = !Number.isFinite(actualPE);
+    const peForChart = peIsMissing ? predictedPE : actualPE;
+    const deviation = peIsMissing ? NaN : actualPE - predictedPE;
+
+    this.renderScatter({
+      ticker,
+      longName,
+      sectorSlug,
+      sectorRows: sectorPlotRows,
+      fit,
+      compositeZ,
+      peForChart,
+    });
+    this.renderDeviation({
+      sectorRows: sectorPlotRows,
+      actual: peForChart,
+      predicted: predictedPE,
+    });
+    this.renderInfoCard({
+      ticker,
+      sectorSlug,
+      compositeZ,
+      actualPE,
+      predictedPE,
+      deviation,
+      peIsMissing,
+      categoryScores,
+      categoryIsMissing,
+    });
+
+    const summary = `Analysis complete for <span class="status-success-ticker">${htmlEscape(ticker)}</span> &middot; Sector: ${htmlEscape(GICS_SECTOR_MAPPING[sectorSlug] || sectorSlug)} &middot; Fundamental Z-score: ${compositeZ.toFixed(2)}`;
+    this.setStatus(summary);
+  },
+
+  computeSectorPlotRows(sectorRows, sectorWeights) {
+    const out = [];
+    for (const row of sectorRows) {
+      const pe = Number(row.PE);
+      if (!Number.isFinite(pe)) continue;
+      let weightedSum = 0;
+      let totalWeight = 0;
+      for (const category of Object.keys(CATEGORY_TO_METRICS)) {
+        const score = Number(row[category]);
+        if (!Number.isFinite(score)) continue;
+        const w = Number(sectorWeights[category]) / 100;
+        if (!Number.isFinite(w)) continue;
+        weightedSum += score * w;
+        totalWeight += w;
+      }
+      if (totalWeight === 0) continue;
+      out.push({ ticker: row.Ticker, composite: weightedSum / totalWeight, pe });
+    }
+    return out;
+  },
+
+  renderScatter({ ticker, sectorSlug, sectorRows, fit, compositeZ, peForChart }) {
+    const target = document.getElementById("individual-scatter");
+    const sectorLabel = GICS_SECTOR_MAPPING[sectorSlug] || sectorSlug;
+    const traces = [
+      {
+        x: sectorRows.map((r) => r.composite),
+        y: sectorRows.map((r) => r.pe),
+        mode: "markers",
+        type: "scatter",
+        name: "Sector Stocks",
+        text: sectorRows.map((r) => r.ticker),
+        hovertemplate: "%{text}<br>Fundamental Z-score: %{x:.2f}<br>P/E: %{y:.2f}<extra></extra>",
+        marker: { size: 10, color: COLORS.primary, opacity: 0.5 },
+      },
+    ];
+    const annotations = [];
+    if (fit) {
+      const finiteXs = sectorRows.map((r) => r.composite).filter(Number.isFinite);
+      const xMin = Math.min(...finiteXs, compositeZ);
+      const xMax = Math.max(...finiteXs, compositeZ);
+      traces.push({
+        x: [xMin, xMax],
+        y: [fit.predict(xMin), fit.predict(xMax)],
+        mode: "lines",
+        type: "scatter",
+        name: "Sector Trend",
+        line: { color: COLORS.secondary, dash: "dash" },
+        hoverinfo: "skip",
+      });
+      annotations.push(fitAnnotation(fit.slope, fit.intercept, fit.rSquared));
+    }
+    traces.push({
+      x: [compositeZ],
+      y: [peForChart],
+      mode: "markers",
+      type: "scatter",
+      name: ticker,
+      text: [ticker],
+      hovertemplate: "%{text}<br>Fundamental Z-score: %{x:.2f}<br>P/E: %{y:.2f}<extra></extra>",
+      marker: { size: 15, color: COLORS.accent, line: { width: 2, color: "white" } },
+    });
+    const layout = {
+      ...scatterLayout({ title: `${ticker} vs ${sectorLabel} Sector` }),
+      annotations,
+    };
+    Plotly.newPlot(target, traces, layout, PLOTLY_CONFIG);
+  },
+
+  renderDeviation({ sectorRows, actual, predicted }) {
+    const target = document.getElementById("individual-deviation");
+    if (!Number.isFinite(actual) || !Number.isFinite(predicted)) {
+      Plotly.purge(target);
+      return;
+    }
+    Plotly.newPlot(
+      target,
+      deviationBarTraces({ actual, predicted }),
+      deviationBarLayout({
+        title: "P/E Ratio Analysis",
+        predicted,
+        height: 200,
+        titleSize: 20,
+        sectorRows: sectorRows.map((r) => ({ PE: r.pe })),
+      }),
+      PLOTLY_CONFIG,
+    );
+  },
+
+  renderInfoCard({
+    ticker,
+    sectorSlug,
+    compositeZ,
+    actualPE,
+    predictedPE,
+    deviation,
+    peIsMissing,
+    categoryScores,
+    categoryIsMissing,
+  }) {
+    const target = document.getElementById("individual-info");
+    const sectorLabel = GICS_SECTOR_MAPPING[sectorSlug] || sectorSlug;
+    const sections = [
+      [
+        "Company Information",
+        [
+          ["Sector", htmlEscape(sectorLabel), false],
+          ["Fundamental Z-score", compositeZ.toFixed(2), false],
+        ],
+      ],
+      [
+        "P/E Analysis",
+        [
+          ["Actual P/E", peIsMissing ? "unavailable" : actualPE.toFixed(2), peIsMissing],
+          ["Predicted P/E", Number.isFinite(predictedPE) ? predictedPE.toFixed(2) : "unavailable", !Number.isFinite(predictedPE)],
+          ["P/E Deviation", peIsMissing || !Number.isFinite(deviation) ? "unavailable" : deviation.toFixed(2), peIsMissing || !Number.isFinite(deviation)],
+        ],
+      ],
+      [
+        "Category Scores",
+        Object.keys(CATEGORY_TO_METRICS).map((cat) => [
+          CATEGORY_LABEL[cat],
+          categoryIsMissing[cat] ? "unavailable" : categoryScores[cat].toFixed(2),
+          categoryIsMissing[cat],
+        ]),
+      ],
+    ];
+    const header = `<h3>${htmlEscape(ticker)} Analysis</h3>`;
+    const body = sections
+      .map(
+        ([sectionTitle, rows]) => `
+          <h4>${htmlEscape(sectionTitle)}</h4>
+          ${rows
+            .map(
+              ([label, value, isMissing]) => `
+                <div class="info-row">
+                  <span class="info-label">${htmlEscape(label)}:</span>
+                  <span class="${isMissing ? "info-value-unavailable" : ""}">${value}</span>
+                </div>`,
+            )
+            .join("")}
+        `,
+      )
+      .join("");
+    target.innerHTML = `<div class="info-block">${header}${body}</div>`;
+  },
+};
+
 const REPO_URL = "https://github.com/mackhaymond/sector-relative-valuation";
 
 function renderBacktestFooter() {
@@ -822,6 +1295,9 @@ document.addEventListener("DOMContentLoaded", () => {
     console.error("Failed to initialise Factor Selection tab", err);
     const target = document.getElementById("regression-output");
     if (target) target.textContent = `Failed to initialise: ${err.message}`;
+  });
+  individualTab.init().catch((err) => {
+    console.error("Failed to initialise Individual Stock tab", err);
   });
   renderBacktestFooter();
 });
