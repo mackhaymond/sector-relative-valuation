@@ -16,6 +16,8 @@ from data import (
     X1_RISK_METRICS,
     X2_MOMENTUM_METRICS,
     X3_QUALITY_METRICS,
+    X5_SIZE_METRICS,
+    X6_GROWTH_METRICS,
     calculate_rsi,
     calculate_return_sd,
     calculate_max_drawdown,
@@ -267,7 +269,6 @@ app.layout = html.Div([
             html.Div([
                 html.H3('Select Factors for PE Ratio Prediction', style=STYLES['subtitle']),
                 html.Div([
-                    # Risk Factors
                     html.Div([
                         html.Div([
                             dcc.Checklist(
@@ -276,13 +277,14 @@ app.layout = html.Div([
                                     {'label': 'Risk', 'value': 'risk'},
                                     {'label': 'Momentum', 'value': 'momentum'},
                                     {'label': 'Quality', 'value': 'quality'},
+                                    {'label': 'Size', 'value': 'size'},
+                                    {'label': 'Growth', 'value': 'growth'},
                                 ],
-                                value=['risk', 'momentum', 'quality'],
+                                value=['risk', 'momentum', 'quality', 'size', 'growth'],
                                 labelStyle={'display': 'block', 'margin': '10px 0', 'fontWeight': 'bold'}
                             ),
                         ]),
-                        
-                        # Risk Metrics
+
                         html.Div(
                             id='risk-metrics-display',
                             children=[
@@ -297,7 +299,6 @@ app.layout = html.Div([
                             style={'marginBottom': '15px'},
                         ),
 
-                        # Momentum Metrics
                         html.Div(
                             id='momentum-metrics-display',
                             children=[
@@ -312,7 +313,6 @@ app.layout = html.Div([
                             style={'marginBottom': '15px'},
                         ),
 
-                        # Quality Metrics
                         html.Div(
                             id='quality-metrics-display',
                             children=[
@@ -322,6 +322,31 @@ app.layout = html.Div([
                                     html.Li('ROE'),
                                     html.Li('ROA'),
                                     html.Li('Operating Margin'),
+                                    html.Li('EBITDA Margin'),
+                                ], style={'marginLeft': '40px', 'marginTop': '4px', 'fontSize': '13px'}),
+                            ],
+                            style={'marginBottom': '15px'},
+                        ),
+
+                        html.Div(
+                            id='size-metrics-display',
+                            children=[
+                                html.Span('Composed of (z-score within sector):',
+                                          style={'fontSize': '13px', 'color': COLORS['text'], 'marginLeft': '20px'}),
+                                html.Ul([
+                                    html.Li('log(Market Cap)'),
+                                ], style={'marginLeft': '40px', 'marginTop': '4px', 'fontSize': '13px'}),
+                            ],
+                            style={'marginBottom': '15px'},
+                        ),
+
+                        html.Div(
+                            id='growth-metrics-display',
+                            children=[
+                                html.Span('Composed of (z-score within sector):',
+                                          style={'fontSize': '13px', 'color': COLORS['text'], 'marginLeft': '20px'}),
+                                html.Ul([
+                                    html.Li('Revenue Growth'),
                                 ], style={'marginLeft': '40px', 'marginTop': '4px', 'fontSize': '13px'}),
                             ],
                             style={'marginBottom': '15px'},
@@ -735,10 +760,15 @@ def update_graph(selected_sector, selected_company):
     return fig, company_info
 
 # Callbacks for Factor Selection tab
+ALL_FACTOR_GROUPS = ['risk', 'momentum', 'quality', 'size', 'growth']
+
+
 @app.callback(
     [Output('risk-metrics-display', 'style'),
      Output('momentum-metrics-display', 'style'),
-     Output('quality-metrics-display', 'style')],
+     Output('quality-metrics-display', 'style'),
+     Output('size-metrics-display', 'style'),
+     Output('growth-metrics-display', 'style')],
     [Input('factor-group-checklist', 'value')]
 )
 def toggle_factor_displays(selected_groups):
@@ -746,11 +776,11 @@ def toggle_factor_displays(selected_groups):
     visible_style = {'marginBottom': '15px'}
 
     if not selected_groups:
-        selected_groups = ['risk', 'momentum', 'quality']
+        selected_groups = ALL_FACTOR_GROUPS
 
     return [
         visible_style if group in selected_groups else hidden_style
-        for group in ['risk', 'momentum', 'quality']
+        for group in ALL_FACTOR_GROUPS
     ]
 
 
@@ -764,7 +794,7 @@ def update_regression_output(n_clicks, selected_groups):
     import statsmodels.api as sm
 
     if not selected_groups:
-        selected_groups = ['risk', 'momentum', 'quality']
+        selected_groups = ALL_FACTOR_GROUPS
 
     # Each enabled factor group contributes its single pre-computed
     # composite column to the OLS design matrix. The composite is the
@@ -774,25 +804,28 @@ def update_regression_output(n_clicks, selected_groups):
         'risk': 'Risk_Score',
         'momentum': 'Momentum_Score',
         'quality': 'Quality_Score',
+        'size': 'Size_Score',
+        'growth': 'Growth_Score',
     }
     group_to_metrics = {
         'risk': list(X1_RISK_METRICS.keys()),
         'momentum': list(X2_MOMENTUM_METRICS.keys()),
         'quality': list(X3_QUALITY_METRICS.keys()),
+        'size': list(X5_SIZE_METRICS.keys()),
+        'growth': list(X6_GROWTH_METRICS.keys()),
     }
     factor_columns = {
         group.capitalize(): [group_to_column[group]]
-        for group in ('risk', 'momentum', 'quality')
+        for group in ALL_FACTOR_GROUPS
         if group in selected_groups
     }
 
     if not factor_columns:
         factor_columns = {
-            'Risk': ['Risk_Score'],
-            'Momentum': ['Momentum_Score'],
-            'Quality': ['Quality_Score'],
+            group.capitalize(): [group_to_column[group]]
+            for group in ALL_FACTOR_GROUPS
         }
-        selected_groups = ['risk', 'momentum', 'quality']
+        selected_groups = list(ALL_FACTOR_GROUPS)
 
     selected_columns = list({col for cols in factor_columns.values() for col in cols})
     
