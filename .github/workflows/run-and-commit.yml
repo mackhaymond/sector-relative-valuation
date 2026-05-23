@@ -29,22 +29,27 @@ jobs:
     - name: Run generate_weights.py
       run: uv run python src/generate_weights.py
 
+    - name: Move CSVs into ./public/ (Worker asset directory)
+      run: |
+        mkdir -p public
+        mv -f sector_analysis.csv sector_analysis_full.csv weights.csv public/
+
     - name: Verify all 11 sectors are present in weights.csv
       run: |
-        SECTOR_COUNT=$(tail -n +2 weights.csv | wc -l | tr -d ' ')
+        SECTOR_COUNT=$(tail -n +2 public/weights.csv | wc -l | tr -d ' ')
         if [ "$SECTOR_COUNT" -lt 11 ]; then
-          echo "::error::weights.csv has $SECTOR_COUNT sectors (expected 11)."
+          echo "::error::public/weights.csv has $SECTOR_COUNT sectors (expected 11)."
           echo "Sectors present:"
-          cut -d, -f1 weights.csv | tail -n +2
+          cut -d, -f1 public/weights.csv | tail -n +2
           exit 1
         fi
-        echo "All $SECTOR_COUNT sectors present in weights.csv."
+        echo "All $SECTOR_COUNT sectors present in public/weights.csv."
 
     - name: Commit changes
       run: |
         git config --global user.name 'github-actions[bot]'
         git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-        git add sector_analysis.csv sector_analysis_full.csv weights.csv
+        git add public/sector_analysis.csv public/sector_analysis_full.csv public/weights.csv
         git commit -m 'Update sector analysis data'
         git push
       env:
