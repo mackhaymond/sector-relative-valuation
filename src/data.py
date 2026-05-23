@@ -425,13 +425,18 @@ async def process_data(
 
     # Filter out data points with extreme z-scores. The threshold is
     # applied to every composite so that one runaway factor cannot
-    # silently rescue an obviously-broken row.
-    mask = (abs(df["Risk_Score"]) <= 2.5) & \
-           (abs(df["Momentum_Score"]) <= 2.5) & \
-           (abs(df["Quality_Score"]) <= 2.5) & \
-           (abs(df["Size_Score"]) <= 2.5) & \
-           (abs(df["Growth_Score"]) <= 2.5) & \
-           (abs(df["PE_ZScore"]) <= 2.5)
+    # silently rescue an obviously-broken row. 3.0-sigma rather than
+    # the historical 2.5-sigma: at 5 predictors, six independent AND'd
+    # filters at 2.5-sigma drop too much of the smallest sectors
+    # (energy at n ~31 going to ~25 leaves n/p = 5, which is below
+    # the rule-of-thumb >=10 needed for a stable per-sector regression).
+    # 3.0-sigma keeps the universe at ~98% of post-PE-dropna rows.
+    mask = (abs(df["Risk_Score"]) <= 3.0) & \
+           (abs(df["Momentum_Score"]) <= 3.0) & \
+           (abs(df["Quality_Score"]) <= 3.0) & \
+           (abs(df["Size_Score"]) <= 3.0) & \
+           (abs(df["Growth_Score"]) <= 3.0) & \
+           (abs(df["PE_ZScore"]) <= 3.0)
     df_filtered = df[mask]
     # df[boolean_mask] returns a DataFrame in this context; narrow for pyright.
     assert isinstance(df_filtered, pd.DataFrame)
