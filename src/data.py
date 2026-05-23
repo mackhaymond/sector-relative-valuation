@@ -397,6 +397,7 @@ async def process_data(
         "x2_momentum_metrics",
         "x3_quality_metrics",
         "x5_size_metrics",
+        "x6_growth_metrics",
     ]:
         for metric_name in metrics[metric_group].keys():
             if metric_name in df.columns:
@@ -419,6 +420,8 @@ async def process_data(
                              if f"{metric}_ZScore" in df.columns]].mean(axis=1)
     df.loc[:, "Size_Score"] = df[[f"{metric}_ZScore" for metric in X5_SIZE_METRICS.keys()
                           if f"{metric}_ZScore" in df.columns]].mean(axis=1)
+    df.loc[:, "Growth_Score"] = df[[f"{metric}_ZScore" for metric in X6_GROWTH_METRICS.keys()
+                            if f"{metric}_ZScore" in df.columns]].mean(axis=1)
 
     # Filter out data points with extreme z-scores. The threshold is
     # applied to every composite so that one runaway factor cannot
@@ -427,6 +430,7 @@ async def process_data(
            (abs(df["Momentum_Score"]) <= 2.5) & \
            (abs(df["Quality_Score"]) <= 2.5) & \
            (abs(df["Size_Score"]) <= 2.5) & \
+           (abs(df["Growth_Score"]) <= 2.5) & \
            (abs(df["PE_ZScore"]) <= 2.5)
     df_filtered = df[mask]
     # df[boolean_mask] returns a DataFrame in this context; narrow for pyright.
@@ -434,7 +438,10 @@ async def process_data(
     df = df_filtered
 
     # Keep only essential columns
-    columns_to_keep = ["Sector", "Ticker", "Risk_Score", "Momentum_Score", "Quality_Score", "Size_Score"]
+    columns_to_keep = [
+        "Sector", "Ticker",
+        "Risk_Score", "Momentum_Score", "Quality_Score", "Size_Score", "Growth_Score",
+    ]
     if "PE" in df.columns:
         columns_to_keep.extend(["PE", "PE_ZScore"])
 
