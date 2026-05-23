@@ -1,4 +1,11 @@
-import YahooFinance from "yahoo-finance2";
+// Runtime shim for yahoo-finance2's transitive @deno/shim-deno dependency,
+// which references __dirname / __filename at module init. Workers ESM has
+// neither. Pages Functions don't support wrangler.jsonc's `define:` block
+// (that's a Workers-only feature), so the shim has to run before the
+// dynamic import below evaluates. Setting them on globalThis is enough —
+// the shim package reads from the global, not from a closure.
+globalThis.__dirname = globalThis.__dirname || "/";
+globalThis.__filename = globalThis.__filename || "/index.js";
 
 /*
  * GET /api/yf?ticker=SYMBOL
@@ -28,9 +35,15 @@ const SUMMARY_MODULES = [
   "summaryDetail",
 ];
 
-const yahooFinance = new YahooFinance({
-  suppressNotices: ["yahooSurvey", "ripHistorical"],
-});
+let yahooFinancePromise;
+async function getYahooFinance() {
+  if (!yahooFinancePromise) {
+    yahooFinancePromise = import("yahoo-finance2").then(
+      (mod) => new mod.default({ suppressNotices: ["yahooSurvey", "ripHistorical"] }),
+    );
+  }
+  return yahooFinancePromise;
+}
 
 function jsonResponse(body, init = {}) {
   const headers = new Headers(init.headers || {});
@@ -71,6 +84,7 @@ export async function onRequestGet({ request, env, waitUntil }) {
   let summary;
   let history;
   try {
+    const yahooFinance = await getYahooFinance();
     [quote, summary, history] = await Promise.all([
       yahooFinance.quote(rawTicker),
       yahooFinance.quoteSummary(rawTicker, { modules: SUMMARY_MODULES }),

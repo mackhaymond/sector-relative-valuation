@@ -4,10 +4,6 @@
   "compatibility_date": "2026-05-22",
   "compatibility_flags": ["nodejs_compat"],
   "pages_build_output_dir": ".",
-  "define": {
-    "__dirname": "\"/\"",
-    "__filename": "\"/index.js\""
-  },
   "vars": {
     "CACHE_TTL_FUNDAMENTALS": "300",
     "CACHE_TTL_HISTORICAL": "3600"
