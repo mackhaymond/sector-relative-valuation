@@ -27,6 +27,7 @@ data = pd.read_csv(file_path)
 
 sector_weights: dict[str, dict[str, float]] = {}
 sector_alphas: dict[str, float] = {}
+sector_r_squared: dict[str, float] = {}
 
 for sector in data['Sector'].unique():
     sector_data = data[data['Sector'] == sector]
@@ -59,6 +60,7 @@ for sector in data['Sector'].unique():
         for column, weight in zip(FACTOR_COLUMNS, normalized_weights)
     }
     sector_alphas[sector] = float(ridge_model.alpha_)
+    sector_r_squared[sector] = float(ridge_model.score(X_scaled, y))
 
 for sector in sector_weights:
     sector_mask = data['Sector'] == sector
@@ -72,13 +74,19 @@ for sector in sector_weights:
 
 data.to_csv('sector_analysis.csv', index=False)
 
+# weights.csv schema: one row per sector, FACTOR_COLUMNS in declared
+# order, then the per-sector ridge diagnostics (alpha, r_squared).
+# The diagnostic columns are appended (not interleaved) so a consumer
+# that only wants the factor weights can keep slicing by FACTOR_COLUMNS.
 weights_df = pd.DataFrame.from_dict(sector_weights, orient='index')
 weights_df = weights_df[FACTOR_COLUMNS]
+weights_df['alpha'] = pd.Series(sector_alphas)
+weights_df['r_squared'] = pd.Series(sector_r_squared)
 weights_df.index.name = 'Sector'
 weights_df.to_csv('weights.csv')
 
 print("\nSector-Specific Weights:")
 for sector, weights in sector_weights.items():
-    print(f"\n{sector}:")
+    print(f"\n{sector}:  alpha={sector_alphas[sector]:.3f}  R^2={sector_r_squared[sector]:.4f}")
     for metric, weight in weights.items():
-        print(f"{metric}: {weight:.2f}%")
+        print(f"  {metric}: {weight:.2f}%")
