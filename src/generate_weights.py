@@ -1,6 +1,7 @@
 import pandas as pd
 from sklearn.linear_model import RidgeCV
 from sklearn.preprocessing import StandardScaler
+from statsmodels.stats.outliers_influence import variance_inflation_factor
 import numpy as np
 
 # Order matters: it determines both the design-matrix column order
@@ -25,9 +26,29 @@ ALPHA_GRID = [0.01, 0.1, 1.0, 10.0, 100.0]
 file_path = 'sector_analysis.csv'
 data = pd.read_csv(file_path)
 
+def _compute_vif(x_scaled: np.ndarray) -> list[float]:
+    """Per-column VIF for a standardized design matrix.
+
+    VIF_j = 1 / (1 - R^2_j) where R^2_j is the OLS fit of column j on
+    the remaining columns. Returns NaN for a column when statsmodels
+    cannot evaluate the regression (e.g. perfectly collinear cross-
+    section, n < 2 predictors), so the diagnostic table can still
+    render the rest of the row.
+    """
+    vifs: list[float] = []
+    for j in range(x_scaled.shape[1]):
+        try:
+            vifs.append(float(variance_inflation_factor(x_scaled, j)))
+        except Exception:
+            vifs.append(float("nan"))
+    return vifs
+
+
 sector_weights: dict[str, dict[str, float]] = {}
 sector_alphas: dict[str, float] = {}
 sector_r_squared: dict[str, float] = {}
+sector_vifs: dict[str, list[float]] = {}
+sector_n: dict[str, int] = {}
 
 for sector in data['Sector'].unique():
     sector_data = data[data['Sector'] == sector]
@@ -59,8 +80,16 @@ for sector in data['Sector'].unique():
         column: float(weight)
         for column, weight in zip(FACTOR_COLUMNS, normalized_weights)
     }
-    sector_alphas[sector] = float(ridge_model.alpha_)
+    # RidgeCV.alpha_ is typed Optional in sklearn-stubs but is always
+    # populated after a successful .fit(); narrow the type with an
+    # explicit guard so basedpyright doesn't see a possibly-None float.
+    chosen_alpha = ridge_model.alpha_
+    if chosen_alpha is None:
+        raise RuntimeError(f"RidgeCV failed to select an alpha for sector {sector!r}")
+    sector_alphas[sector] = float(chosen_alpha)
     sector_r_squared[sector] = float(ridge_model.score(X_scaled, y))
+    sector_vifs[sector] = _compute_vif(X_scaled)
+    sector_n[sector] = n
 
 for sector in sector_weights:
     sector_mask = data['Sector'] == sector
@@ -85,8 +114,46 @@ weights_df['r_squared'] = pd.Series(sector_r_squared)
 weights_df.index.name = 'Sector'
 weights_df.to_csv('weights.csv')
 
-print("\nSector-Specific Weights:")
-for sector, weights in sector_weights.items():
-    print(f"\n{sector}:  alpha={sector_alphas[sector]:.3f}  R^2={sector_r_squared[sector]:.4f}")
-    for metric, weight in weights.items():
-        print(f"  {metric}: {weight:.2f}%")
+def _format_diagnostic_table() -> str:
+    """Pretty-printed per-sector summary: alpha, R^2, top-2 weights, VIFs."""
+    header = (
+        f"{'sector':<24} {'n':>5} {'alpha':>8} {'R^2':>8}   "
+        f"{'top-2 factors':<46}   VIF (Risk Mom Qual Size Grow)"
+    )
+    rows = [header, "-" * len(header)]
+    short_names = ['Risk', 'Mom', 'Qual', 'Size', 'Grow']
+    for sector in sorted(sector_weights.keys()):
+        weights = sector_weights[sector]
+        ranked = sorted(weights.items(), key=lambda kv: kv[1], reverse=True)
+        top2 = ranked[:2]
+        top2_str = ", ".join(f"{name.replace('_Score', '')} {w:5.1f}%" for name, w in top2)
+        vif_str = "  ".join(
+            f"{name}={vif:5.2f}" if np.isfinite(vif) else f"{name}=  nan"
+            for name, vif in zip(short_names, sector_vifs[sector])
+        )
+        rows.append(
+            f"{sector:<24} {sector_n[sector]:>5} "
+            f"{sector_alphas[sector]:>8.3f} {sector_r_squared[sector]:>8.4f}   "
+            f"{top2_str:<46}   {vif_str}"
+        )
+
+    # Flag sectors with severe multicollinearity. Ridge handles VIF>10
+    # by design via shrinkage, but the operator still wants to know so
+    # the per-sector weight stability for that factor is treated as
+    # diagnostic-only, not as a clean estimate.
+    flagged: list[tuple[str, str, float]] = []
+    for sector, vifs in sector_vifs.items():
+        for factor, vif in zip(FACTOR_COLUMNS, vifs):
+            if np.isfinite(vif) and vif > 10.0:
+                flagged.append((sector, factor, vif))
+    if flagged:
+        rows.append("")
+        rows.append("VIF > 10 (severe collinearity; ridge still fits but weights are diagnostic-only):")
+        for sector, factor, vif in flagged:
+            rows.append(f"  {sector:<24} {factor:<16} VIF={vif:.2f}")
+
+    return "\n".join(rows)
+
+
+print("\nPer-sector Ridge fit diagnostics:")
+print(_format_diagnostic_table())
