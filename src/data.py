@@ -46,10 +46,21 @@ X2_MOMENTUM_METRICS = {
 }
 
 # Category 3: Quality Metrics - Measures of company's operational efficiency
+#
+# EBITDAMargin uses the plural yfinance field name ``ebitdaMargins``;
+# the singular form (which an earlier iteration of this codebase
+# collected) is not present on the info dict and returned 100% null.
+# Banks return ebitdaMargins=0.0 because their cost-of-revenue concept
+# (interest expense) doesn't fit the standard EBITDA definition. That
+# distorts the raw value but not the within-sector z-score: if every
+# financial returns 0, the metric std is 0 and the z-score is NaN,
+# which mean(axis=1) skips, so Financials' Quality_Score becomes the
+# mean of the other three metrics. The composite is robust by accident.
 X3_QUALITY_METRICS = {
     "ROE": "returnOnEquity",                # Return on Equity
     "ROA": "returnOnAssets",                # Return on Assets
-    "OperatingMargin": "operatingMargins"   # Operating efficiency
+    "OperatingMargin": "operatingMargins",  # Operating efficiency
+    "EBITDAMargin": "ebitdaMargins",        # EBITDA / Revenue
 }
 
 # Category 5: Size Metrics
