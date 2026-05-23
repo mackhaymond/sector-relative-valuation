@@ -53,27 +53,32 @@ X3_QUALITY_METRICS = {
 }
 
 # Category 5: Size Metrics
+#
+# TotalAssets was previously collected here but yfinance does not expose
+# it on the ``info`` dict (it lives on the balance sheet endpoint), so
+# it came back 100% null. Dropped.
 X5_SIZE_METRICS = {
     "MarketCap": "marketCap",               # Market Capitalization
-    "TotalAssets": "totalAssets",           # Total Assets
     "EnterpriseValue": "enterpriseValue"    # Enterprise Value
 }
 
 # Category 6: Growth Metrics
+#
+# yfinance does not expose epsGrowth or cashFlowGrowth on the info
+# dict; both came back 100% null across the Russell 1000 (verified
+# against sector_analysis_full.csv after the Phase 1 refresh).
+# revenueGrowth is reliably populated (~99.6%). Until a second data
+# source is wired in, Growth is a single-metric composite.
 X6_GROWTH_METRICS = {
     "RevenueGrowth": "revenueGrowth",       # Revenue Growth
-    "EpsGrowth": "epsGrowth",               # EPS Growth
-    "CashFlowGrowth": "cashFlowGrowth"      # Cash Flow Growth
 }
 
-# Category 7: Profitability Metrics
-X7_PROFITABILITY_METRICS = {
-    "GrossMargin": "grossMargin",           # Gross Margin
-    "EbitdaMargin": "ebitdaMargin",         # EBITDA Margin
-    "NetProfitMargin": "netProfitMargin"    # Net Profit Margin
-}
+# Profitability is intentionally not a standalone factor: Quality already
+# captures the same income-statement signal (ROE, ROA, OperatingMargin,
+# EBITDAMargin in a follow-up commit). Treating Quality and Profitability
+# as independent factors would double-count.
 
-# X4 and X8 identifiers are intentionally absent. The category numbers
+# X4, X7, X8 identifiers are intentionally absent. The category numbers
 # are stable across the codebase; renumbering the survivors would
 # silently rewrite csv column orderings and dashboard wiring.
 
@@ -93,20 +98,17 @@ ALL_METRICS = {
     **X3_QUALITY_METRICS,
     **X5_SIZE_METRICS,
     **X6_GROWTH_METRICS,
-    **X7_PROFITABILITY_METRICS,
     **Y_VALUATION_METRIC
 }
 
-# Create metrics dictionary for easy access
 METRICS = {
-    "x1_risk_metrics": X1_RISK_METRICS,                # X1 variable
-    "x2_momentum_metrics": X2_MOMENTUM_METRICS,        # X2 variable
-    "x3_quality_metrics": X3_QUALITY_METRICS,          # X3 variable
-    "x5_size_metrics": X5_SIZE_METRICS,                # X5 variable
-    "x6_growth_metrics": X6_GROWTH_METRICS,            # X6 variable
-    "x7_profitability_metrics": X7_PROFITABILITY_METRICS, # X7 variable
-    "y_valuation_metric": Y_VALUATION_METRIC,          # Y variable
-    "all_metrics": ALL_METRICS
+    "x1_risk_metrics": X1_RISK_METRICS,
+    "x2_momentum_metrics": X2_MOMENTUM_METRICS,
+    "x3_quality_metrics": X3_QUALITY_METRICS,
+    "x5_size_metrics": X5_SIZE_METRICS,
+    "x6_growth_metrics": X6_GROWTH_METRICS,
+    "y_valuation_metric": Y_VALUATION_METRIC,
+    "all_metrics": ALL_METRICS,
 }
 
 # API Settings
