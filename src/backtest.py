@@ -1,30 +1,40 @@
-"""Sector-relative valuation backtest.
+"""Sector-relative valuation backtest (Phase 3.5: PIT fundamentals).
 
-Monthly-rebalanced long-short backtest of the deviation signal: at each
-snapshot date, within each sector, rank tickers by ``actual_PE_t -
-predicted_PE_t`` (where predicted_PE_t is the within-sector OLS fit of
-PE_t on composite_z_score, refit per snapshot), long the cheapest
-quintile, short the richest, equal-weight within each leg, then
-aggregate across sectors with equal sector weights.
+Monthly-rebalanced long-short backtest of the deviation signal. At each
+snapshot date, within each sector: rank tickers by
+``actual_PE_t - predicted_PE_t`` (the within-sector OLS residual of
+PE_t on composite_z_score), long the cheapest quintile, short the
+richest, equal-weight within each leg, then aggregate across sectors
+with equal sector weights.
 
-Methodological caveats (see BACKTEST.md for the full discussion):
+Phase 3.5 fix over Phase 3:
 
-* Fundamentals (the per-ticker composite_z_score and the per-sector
-  Ridge weights baked into it) are CURRENT, not point-in-time. Using
-  today's factor values to backtest yesterday's signal is a look-ahead
-  bias of unknown magnitude. yfinance free tier does not expose
-  historical fundamentals.
-* Per-ticker TTM EPS is also current. We compute it as
-  ``last_price_i / current_PE_i`` and reuse the same scalar at every
-  snapshot, so actual_PE_t moves only with price; the EPS denominator
-  is constant per ticker over the backtest window.
-* Survivorship bias: the universe at every snapshot is today's Russell
-  1000 (as captured in sector_analysis.csv). Companies that were in the
-  index historically but have since been delisted, merged, or demoted
-  are absent.
-* The only PIT-correct input is the price series. yfinance.history /
-  yf.download with ``auto_adjust=True`` returns split- and
-  dividend-adjusted prices on the actual historical calendar date.
+* Per-snapshot fundamentals come from SimFin via src/pit_fundamentals
+  (``fetch_pit_metrics(ticker, as_of)``), filtered by ``Publish Date``
+  on-or-before the snapshot. The per-ticker TTM EPS, ROE, ROA, margins,
+  debt/equity, and revenue growth are therefore PIT-correct (the value
+  an investor on the snapshot date could actually see).
+* The per-sector Ridge weights are refit per snapshot via RidgeCV
+  (walk-forward), so the composite_z_score at snapshot ``t`` uses only
+  data known at ``t`` — no static today-fitted weights leak across the
+  window.
+* Price metrics (MaxDrawdown, ReturnSD, RSI, PriceChange12M) are
+  computed from the trailing 1y of yfinance's adjusted-close history
+  ending at the snapshot.
+
+Residual caveats (see BACKTEST.md §2 for the full discussion):
+
+* Survivorship bias. The universe at every snapshot is today's Russell
+  1000 (data/russell1000.csv). Historical members that have since
+  delisted, merged, or been demoted are absent.
+* Financials coverage gap. SimFin's free-tier balance-sheet TTM
+  dataset uses a schema for banks/insurers that doesn't carry
+  ``Total Equity``, ``Long Term Debt``, etc. in the same column names,
+  so most Financials tickers fall out of the universe at PIT
+  resolution. Documented in BACKTEST.md as a residual limitation.
+* The price series is the one PIT-correct input throughout
+  (``auto_adjust=True`` returns split- and dividend-adjusted prices on
+  the actual historical calendar date).
 """
 
 from __future__ import annotations
@@ -38,6 +48,16 @@ import numpy as np
 import pandas as pd
 import yfinance as yf
 from scipy import stats
+from scipy.stats import zscore as scipy_zscore
+from sklearn.linear_model import RidgeCV
+from sklearn.preprocessing import StandardScaler
+
+from data import (
+    calculate_max_drawdown,
+    calculate_return_sd,
+    calculate_rsi,
+)
+from pit_fundamentals import fetch_pit_metrics
 
 # Repository root: this file lives at <repo>/src/backtest.py.
 ROOT = Path(__file__).resolve().parent.parent
@@ -243,101 +263,310 @@ def _next_trading_day(
     return first
 
 
-def build_snapshot_panel(
-    sa: pd.DataFrame, prices: pd.DataFrame
+# Per-sector RidgeCV configuration. Mirrors src/generate_weights.py
+# (ALPHA_GRID + cv = max(2, min(5, n-1))) so the per-snapshot weights
+# produced by the walk-forward path are computed under the exact same
+# regression Phase 2 ships for the dashboard's static snapshot.
+_RIDGE_ALPHA_GRID = [0.01, 0.1, 1.0, 10.0, 100.0]
+_FACTOR_COLUMNS = [
+    "Risk_Score",
+    "Momentum_Score",
+    "Quality_Score",
+    "Size_Score",
+    "Growth_Score",
+]
+
+# Trading-day window (sessions) used to compute the 1-year price-
+# derived risk/momentum metrics. 252 = the conventional NYSE year used
+# throughout src/data.py (calculate_return_sd default).
+_TRADING_DAYS_PER_YEAR = 252
+
+
+def _trailing_prices(
+    prices: pd.DataFrame, snapshot_date: pd.Timestamp
 ) -> pd.DataFrame:
-    """Static per-ticker inputs reused at every snapshot.
+    """The trailing 1y of prices ending at ``snapshot_date`` (inclusive).
 
-    Returns a DataFrame indexed by Ticker with columns Sector,
-    composite_z_score, ttm_eps. ``ttm_eps`` is the look-ahead-affected
-    EPS proxy: today's price / today's PE. Tickers without a usable EPS
-    (no current PE, no recent price, non-positive implied EPS) are
-    excluded — they cannot produce a PE_t at any snapshot.
+    Wider helper than just slicing because the snapshot may fall on a
+    market holiday for some tickers; we still want every ticker's last
+    available price on or before the snapshot.
     """
-    panel_raw = sa.set_index("Ticker")[["Sector", "composite_z_score", "PE"]]
-    assert isinstance(panel_raw, pd.DataFrame)
-    panel = panel_raw.copy()
-    # "Today's" price = most recent value forward-filled per ticker, so
-    # a ticker that stopped trading a few days before the cache cutoff
-    # still gets its last known price as the EPS reference.
-    last_prices = prices.ffill().iloc[-1]
-    panel["last_price"] = last_prices.reindex(panel.index)
-    panel["ttm_eps"] = panel["last_price"] / panel["PE"]
-    panel = panel.dropna(subset=["last_price", "ttm_eps"])
-    # Negative implied EPS means yfinance reported a negative trailing
-    # P/E (some loss-making names do come through that way). The signed
-    # PE_t would still be meaningful, but the regression target is
-    # untrustworthy and the dashboard does not surface negative-PE
-    # tickers either. Drop them.
-    filtered = panel[panel["ttm_eps"] > 0]
-    assert isinstance(filtered, pd.DataFrame)
-    return filtered
+    cutoff_start = snapshot_date - pd.DateOffset(years=1)
+    window = prices.loc[cutoff_start:snapshot_date]
+    assert isinstance(window, pd.DataFrame)
+    return window
 
 
-def _historical_pe(
-    price_at_t: pd.Series, ttm_eps: pd.Series
-) -> pd.Series:
-    """PE_t = price_t / current_TTM_EPS, aligned per ticker."""
-    common = price_at_t.index.intersection(ttm_eps.index)
-    p = price_at_t.reindex(common)
-    e = ttm_eps.reindex(common)
-    pe = p / e
-    return pe.replace([np.inf, -np.inf], np.nan).dropna()
+def _price_derived_metrics(
+    prices_window: pd.DataFrame, ticker: str
+) -> Dict[str, Optional[float]]:
+    """MaxDrawdown / ReturnSD / RSI / PriceChange12M / price_at_t.
+
+    All four are computed on the trailing-1y price slice ending at the
+    snapshot. price_at_t = the last value in the window (the closest
+    trading day on-or-before the snapshot for this ticker).
+    """
+    out: Dict[str, Optional[float]] = {
+        "MaxDrawdown": None,
+        "ReturnSD": None,
+        "RSI": None,
+        "PriceChange12M": None,
+        "price_at_t": None,
+    }
+    if ticker not in prices_window.columns:
+        return out
+    series = prices_window[ticker].dropna()
+    if not isinstance(series, pd.Series) or series.empty or len(series) < 30:
+        return out
+    try:
+        out["MaxDrawdown"] = float(calculate_max_drawdown(series))
+    except Exception:
+        out["MaxDrawdown"] = None
+    try:
+        out["ReturnSD"] = calculate_return_sd(series)
+    except Exception:
+        out["ReturnSD"] = None
+    try:
+        out["RSI"] = calculate_rsi(series)
+    except Exception:
+        out["RSI"] = None
+    first, last = float(series.iloc[0]), float(series.iloc[-1])
+    if first > 0 and np.isfinite(first) and np.isfinite(last):
+        out["PriceChange12M"] = (last - first) / first
+    out["price_at_t"] = last
+    return out
+
+
+# Composite definitions match src/data.py:415-424. Tuples of
+# (composite name, list of underlying metric names) — within-sector
+# z-scores of the underlying are mean-imputed and averaged into the
+# composite, exactly as src/data.py does for the live dashboard snapshot.
+_COMPOSITE_DEFS: List[Tuple[str, List[str]]] = [
+    ("Risk_Score", ["MaxDrawdown", "DebtToEquity", "ReturnSD"]),
+    ("Momentum_Score", ["PriceChange12M", "RSI", "EarningsGrowth"]),
+    ("Quality_Score", ["ROE", "ROA", "OperatingMargin", "EBITDAMargin"]),
+    ("Size_Score", ["LogMarketCap"]),
+    ("Growth_Score", ["RevenueGrowth"]),
+]
+
+
+def _zscore_and_filter(
+    sector_df: pd.DataFrame, metrics: List[str]
+) -> pd.DataFrame:
+    """Within-sector z-scoring + composite + 3.0σ outlier filter.
+
+    Replicates src/data.py:394-443 for a single per-snapshot per-sector
+    DataFrame. Missing metric values are mean-imputed within the sector
+    before z-scoring (matches data.py L404); rows whose any composite
+    or PE_ZScore exceeds 3.0σ in absolute value are dropped (data.py
+    L426-443).
+    """
+    if sector_df.empty:
+        return sector_df
+    df = sector_df.copy()
+    df = df.replace([np.inf, -np.inf], np.nan)
+    for m in metrics:
+        if m in df.columns:
+            col = df[m]
+            mean_val = col.mean()
+            imputed = col.fillna(mean_val)
+            df[f"{m}_ZScore"] = scipy_zscore(imputed, nan_policy="omit")
+    if "PE" in df.columns:
+        df = df.dropna(subset=["PE"])
+        if df.empty:
+            return df
+        df["PE_ZScore"] = scipy_zscore(df["PE"], nan_policy="omit")
+    for comp_name, comp_inputs in _COMPOSITE_DEFS:
+        zcols = [f"{m}_ZScore" for m in comp_inputs if f"{m}_ZScore" in df.columns]
+        if not zcols:
+            df[comp_name] = np.nan
+            continue
+        df[comp_name] = df[zcols].mean(axis=1)
+    if "PE_ZScore" in df.columns:
+        mask = (
+            (df["Risk_Score"].abs() <= 3.0)
+            & (df["Momentum_Score"].abs() <= 3.0)
+            & (df["Quality_Score"].abs() <= 3.0)
+            & (df["Size_Score"].abs() <= 3.0)
+            & (df["Growth_Score"].abs() <= 3.0)
+            & (df["PE_ZScore"].abs() <= 3.0)
+        )
+        filtered = df[mask]
+        assert isinstance(filtered, pd.DataFrame)
+        return filtered
+    return df
+
+
+def _fit_sector_ridge(sector_df: pd.DataFrame) -> Optional[Dict[str, float]]:
+    """RidgeCV per-sector → factor weights normalized to sum to 100.
+
+    Returns None when the sector has too few rows to form a clean
+    k=min(5,n-1) CV (need at least 3 rows after the outlier filter;
+    in practice we additionally enforce _MIN_SECTOR_N upstream).
+    Mirrors src/generate_weights.py:69-92.
+    """
+    n = len(sector_df)
+    if n < 3:
+        return None
+    X = sector_df[_FACTOR_COLUMNS].to_numpy(dtype=float)
+    y = sector_df["PE_ZScore"].to_numpy(dtype=float)
+    X_scaled = StandardScaler().fit_transform(X)
+    cv_folds = max(2, min(5, n - 1))
+    model = RidgeCV(alphas=_RIDGE_ALPHA_GRID, fit_intercept=False, cv=cv_folds)
+    model.fit(X_scaled, y)
+    coefs = np.abs(model.coef_)
+    total = float(coefs.sum())
+    if total == 0.0 or not np.isfinite(total):
+        return None
+    weights_pct = (coefs / total) * 100.0
+    return dict(zip(_FACTOR_COLUMNS, [float(w) for w in weights_pct]))
+
+
+def build_snapshot_universe(
+    sa: pd.DataFrame,
+    prices: pd.DataFrame,
+    snapshot_date: pd.Timestamp,
+) -> pd.DataFrame:
+    """Per-ticker PIT metric panel at one snapshot — all 12 inputs.
+
+    Fetches PIT fundamentals from SimFin via fetch_pit_metrics, derives
+    price metrics from the trailing 1y of the cached price series,
+    derives MarketCap = SharesOutstanding * price_at_t, derives
+    LogMarketCap, and derives the regression target PE = price_at_t /
+    TTM_EPS. Tickers missing any critical input (price, TTM_EPS, sector)
+    are dropped; per-metric missingness is left to the downstream
+    z-scoring pipeline to mean-impute.
+    """
+    sector_map: Dict[str, str] = dict(
+        zip(sa["Ticker"].astype(str), sa["Sector"].astype(str))
+    )
+    prices_window = _trailing_prices(prices, snapshot_date)
+    rows: List[Dict[str, object]] = []
+    for ticker in sector_map.keys():
+        pm = _price_derived_metrics(prices_window, ticker)
+        price_at_t = pm["price_at_t"]
+        if price_at_t is None or not np.isfinite(price_at_t) or price_at_t <= 0:
+            continue
+        fund = fetch_pit_metrics(ticker, snapshot_date)
+        ttm_eps = fund.get("TTM_EPS")
+        if ttm_eps is None or not np.isfinite(ttm_eps) or ttm_eps <= 0:
+            continue
+        shares = fund.get("SharesOutstanding")
+        if shares is None or not np.isfinite(shares) or shares <= 0:
+            mkt_cap = None
+            log_mkt_cap = None
+        else:
+            mkt_cap = float(shares) * float(price_at_t)
+            log_mkt_cap = float(np.log(mkt_cap)) if mkt_cap > 0 else None
+        pe = float(price_at_t) / float(ttm_eps)
+        rows.append(
+            {
+                "Ticker": ticker,
+                "Sector": sector_map[ticker],
+                "price_at_t": price_at_t,
+                "PE": pe,
+                "MaxDrawdown": pm["MaxDrawdown"],
+                "ReturnSD": pm["ReturnSD"],
+                "RSI": pm["RSI"],
+                "PriceChange12M": pm["PriceChange12M"],
+                "DebtToEquity": fund.get("DebtToEquity"),
+                "EarningsGrowth": fund.get("EarningsGrowth"),
+                "ROE": fund.get("ROE"),
+                "ROA": fund.get("ROA"),
+                "OperatingMargin": fund.get("OperatingMargin"),
+                "EBITDAMargin": fund.get("EBITDAMargin"),
+                "LogMarketCap": log_mkt_cap,
+                "RevenueGrowth": fund.get("RevenueGrowth"),
+            }
+        )
+    return pd.DataFrame(rows)
 
 
 def compute_snapshot_signal(
-    panel: pd.DataFrame,
+    universe: pd.DataFrame,
     prices: pd.DataFrame,
     snapshot_date: pd.Timestamp,
     forward_date: pd.Timestamp,
+    sa: Optional[pd.DataFrame] = None,
 ) -> pd.DataFrame:
-    """Per-ticker deviation and forward return for one snapshot.
+    """Per-snapshot per-ticker deviation + forward return (PIT path).
 
-    Returns a DataFrame with columns: Ticker, Sector, composite_z_score,
-    pe_t, predicted_pe, deviation, fwd_return. Tickers that lack a
-    price at t or t+1mo, or whose sector has fewer than _MIN_SECTOR_N
-    surviving names at the snapshot, are dropped.
+    Phase 3.5 rewrite. Takes the per-snapshot PIT universe from
+    build_snapshot_universe and:
+      1. per sector: z-score + 3σ outlier filter (mirrors data.py)
+      2. per sector: RidgeCV on (X = 5 composites, y = PE_ZScore) →
+         snapshot-specific factor weights (walk-forward refit)
+      3. composite_z_score = (Σ w_k · k_score) / 100 per ticker
+      4. per-sector 1D OLS of PE on composite_z_score → predicted_PE
+      5. deviation = PE - predicted_PE
+      6. forward return = (price[forward] - price[t]) / price[t]
+
+    The output schema (snapshot, forward, Ticker, Sector,
+    composite_z_score, pe_t, predicted_pe, deviation, fwd_return) is
+    preserved from Phase 3 so aggregate_snapshot and the downstream
+    metric rollups continue to work unchanged.
+
+    The ``sa`` parameter is unused; kept in the signature for backward
+    compatibility with calls that pass it.
     """
+    del sa  # Unused; signature compatibility only.
+    if universe.empty:
+        return pd.DataFrame()
     if snapshot_date not in prices.index or forward_date not in prices.index:
         return pd.DataFrame()
-    price_t = prices.loc[snapshot_date].dropna()
     price_next = prices.loc[forward_date].dropna()
-    if not isinstance(price_t, pd.Series) or not isinstance(price_next, pd.Series):
+    if not isinstance(price_next, pd.Series):
         return pd.DataFrame()
 
-    ttm_eps = panel["ttm_eps"]
-    assert isinstance(ttm_eps, pd.Series)
-    pe_t = _historical_pe(price_t, ttm_eps)
-    pe_t.name = "pe_t"
-    if pe_t.empty:
-        return pd.DataFrame()
-
-    df = panel.join(pe_t, how="inner")
-    df["price_t"] = price_t.reindex(df.index)
-    df["price_next"] = price_next.reindex(df.index)
-    df = df.dropna(subset=["price_t", "price_next"])
-    df["fwd_return"] = (df["price_next"] - df["price_t"]) / df["price_t"]
-    df = df.dropna(subset=["fwd_return", "pe_t", "composite_z_score"])
-
-    # Within each sector: 1D OLS of pe_t on composite_z_score (matches
-    # the dashboard's per-sector scatter fit at src/dashboard.py:500).
-    # Skip sectors below the n-floor — quintiles aren't meaningful and
-    # the OLS slope is dominated by 2-3 names.
     pieces: List[pd.DataFrame] = []
-    for sector, sub in df.groupby("Sector", sort=False):
-        if len(sub) < _MIN_SECTOR_N:
+    metrics = [
+        "MaxDrawdown", "DebtToEquity", "ReturnSD",
+        "PriceChange12M", "RSI", "EarningsGrowth",
+        "ROE", "ROA", "OperatingMargin", "EBITDAMargin",
+        "LogMarketCap", "RevenueGrowth",
+    ]
+    for sector, raw in universe.groupby("Sector", sort=False):
+        if len(raw) < _MIN_SECTOR_N:
             continue
-        x = sub["composite_z_score"].to_numpy(dtype=float)
-        y = sub["pe_t"].to_numpy(dtype=float)
+        filtered = _zscore_and_filter(raw.copy(), metrics)
+        if len(filtered) < _MIN_SECTOR_N:
+            continue
+        weights = _fit_sector_ridge(filtered)
+        if weights is None:
+            continue
+        composite = sum(
+            filtered[col] * weights[col] for col in _FACTOR_COLUMNS
+        ) / 100.0
+        filtered = filtered.copy()
+        filtered["composite_z_score"] = composite
+        x = filtered["composite_z_score"].to_numpy(dtype=float)
+        y = filtered["PE"].to_numpy(dtype=float)
+        if np.std(x) == 0.0:
+            continue
         slope, intercept = np.polyfit(x, y, 1)
-        sub = sub.copy()
-        sub["predicted_pe"] = slope * x + intercept
-        sub["deviation"] = sub["pe_t"] - sub["predicted_pe"]
-        pieces.append(sub)
+        filtered["predicted_pe"] = slope * x + intercept
+        filtered["pe_t"] = filtered["PE"]
+        filtered["deviation"] = filtered["pe_t"] - filtered["predicted_pe"]
+        # Forward return: align price_next per ticker. Use a lambda
+        # rather than Series.map(dict) because pandas-stubs declines the
+        # dict overload; the behavior is identical.
+        price_next_lookup: Dict[str, float] = {
+            str(k): float(v) for k, v in price_next.to_dict().items()
+        }
+        filtered["price_next"] = filtered["Ticker"].map(
+            lambda t: price_next_lookup.get(str(t))
+        )
+        filtered = filtered.dropna(subset=["price_next", "price_at_t"])
+        if filtered.empty:
+            continue
+        filtered["fwd_return"] = (
+            filtered["price_next"] - filtered["price_at_t"]
+        ) / filtered["price_at_t"]
+        filtered = filtered.dropna(subset=["fwd_return"])
+        pieces.append(filtered)
     if not pieces:
         return pd.DataFrame()
-    out = pd.concat(pieces)
-    out = out.reset_index().rename(columns={"index": "Ticker"})
+    out = pd.concat(pieces, ignore_index=True)
     out["snapshot"] = snapshot_date
     out["forward"] = forward_date
     cols = [
@@ -521,8 +750,6 @@ def run_backtest(
             f"No valid snapshot dates in price index covering {months} months."
         )
 
-    panel = build_snapshot_panel(sa, prices)
-
     monthly_rows: List[Dict[str, object]] = []
     per_sector_rows: List[Dict[str, object]] = []
     for snapshot_date in snaps:
@@ -531,7 +758,13 @@ def run_backtest(
         )
         if forward_date is None:
             continue
-        sig = compute_snapshot_signal(panel, prices, snapshot_date, forward_date)
+        # PIT-correct per-snapshot universe build: fetch each ticker's
+        # SimFin filing as of the snapshot, derive price metrics from
+        # the trailing 1y of cached prices, RidgeCV-refit weights per
+        # sector. This is the Phase 3.5 walk-forward path; the Phase 3
+        # static-today's-CSV panel is removed entirely.
+        universe = build_snapshot_universe(sa, prices, snapshot_date)
+        sig = compute_snapshot_signal(universe, prices, snapshot_date, forward_date)
         agg = aggregate_snapshot(sig)
         if not agg:
             continue
