@@ -914,62 +914,88 @@ def analyze_individual_stock(n_clicks, ticker):
         category_stats = {
             'Risk_Score': {'metrics': X1_RISK_METRICS, 'available': 0, 'total': len(X1_RISK_METRICS)},
             'Momentum_Score': {'metrics': X2_MOMENTUM_METRICS, 'available': 0, 'total': len(X2_MOMENTUM_METRICS)},
-            'Quality_Score': {'metrics': X3_QUALITY_METRICS, 'available': 0, 'total': len(X3_QUALITY_METRICS)}
+            'Quality_Score': {'metrics': X3_QUALITY_METRICS, 'available': 0, 'total': len(X3_QUALITY_METRICS)},
+            'Size_Score': {'metrics': X5_SIZE_METRICS, 'available': 0, 'total': len(X5_SIZE_METRICS)},
+            'Growth_Score': {'metrics': X6_GROWTH_METRICS, 'available': 0, 'total': len(X6_GROWTH_METRICS)},
         }
         category_is_missing: dict[str, bool] = {
             'Risk_Score': True,
             'Momentum_Score': True,
             'Quality_Score': True,
+            'Size_Score': True,
+            'Growth_Score': True,
         }
 
+        def _zscore_against_sector(metric_name: str, value: float) -> float | None:
+            """Return (value - sector_mean) / sector_std, or None if the
+            sector cross-section can't support a z-score (missing column,
+            no data, or zero variance)."""
+            if metric_name not in sector_stocks.columns:
+                return None
+            sector_values = sector_stocks[metric_name].dropna()
+            if sector_values.empty:
+                return None
+            std = sector_values.std()
+            if std == 0:
+                return None
+            return float((value - sector_values.mean()) / std)
+
         for metric_group, info in category_stats.items():
-            metric_zscores = []
+            metric_zscores: list[float] = []
             for metric_name, yf_metric in info['metrics'].items():
-                # First check if metric is directly available in stock info
+                value: float | None = None
+
                 if yf_metric in stock_info and not pd.isna(stock_info[yf_metric]):
-                    value = stock_info[yf_metric]
-                    sector_values = sector_stocks[metric_name].dropna() if metric_name in sector_stocks.columns else pd.Series()
-                    if not sector_values.empty and sector_values.std() != 0:
-                        z = (value - sector_values.mean()) / sector_values.std()
-                        metric_zscores.append(z)
-                        info['available'] += 1
-                # For custom metrics that need to be calculated
+                    value = float(stock_info[yf_metric])
+
+                # Derived-from-price metrics (RSI, ReturnSD, MaxDrawdown)
+                # mirror the calculation path in data.get_metric_async so
+                # the queried ticker uses the same definition the sector
+                # cross-section was built from.
                 elif metric_name == "ReturnSD" and not hist_data.empty:
                     try:
-                        value = calculate_return_sd(hist_data['Close'])
-                        sector_values = sector_stocks[metric_name].dropna() if metric_name in sector_stocks.columns else pd.Series()
-                        if not sector_values.empty and sector_values.std() != 0:
-                            z = (value - sector_values.mean()) / sector_values.std()
-                            metric_zscores.append(z)
-                            info['available'] += 1
+                        value = float(calculate_return_sd(hist_data['Close']))
                     except Exception as e:
                         print(f"Error calculating {metric_name}: {e}")
-                        
                 elif metric_name == "MaxDrawdown" and not hist_data.empty:
                     try:
-                        value = calculate_max_drawdown(hist_data['Close'])
-                        sector_values = sector_stocks[metric_name].dropna() if metric_name in sector_stocks.columns else pd.Series()
-                        if not sector_values.empty and sector_values.std() != 0:
-                            z = (value - sector_values.mean()) / sector_values.std()
-                            metric_zscores.append(z)
-                            info['available'] += 1
+                        value = float(calculate_max_drawdown(hist_data['Close']))
                     except Exception as e:
                         print(f"Error calculating {metric_name}: {e}")
-                        
                 elif metric_name == "RSI" and not hist_data.empty:
                     try:
-                        value = calculate_rsi(hist_data['Close'])
-                        sector_values = sector_stocks[metric_name].dropna() if metric_name in sector_stocks.columns else pd.Series()
-                        if not sector_values.empty and sector_values.std() != 0:
-                            z = (value - sector_values.mean()) / sector_values.std()
-                            metric_zscores.append(z)
-                            info['available'] += 1
+                        value = float(calculate_rsi(hist_data['Close']))
                     except Exception as e:
                         print(f"Error calculating {metric_name}: {e}")
-            
+
+                # LogMarketCap is derived in data.py from raw marketCap;
+                # mirror that derivation here so the z-score is computed
+                # against the same definition the sector cross-section was
+                # built from. Guard log(0) / log(<0) the same way data.py
+                # does.
+                elif metric_name == "LogMarketCap":
+                    raw_market_cap = stock_info.get('marketCap')
+                    if raw_market_cap is not None and not pd.isna(raw_market_cap):
+                        try:
+                            mc = float(raw_market_cap)
+                            if mc > 0 and np.isfinite(mc):
+                                value = float(np.log(mc))
+                        except (TypeError, ValueError):
+                            value = None
+
+                if value is None or pd.isna(value):
+                    continue
+
+                z = _zscore_against_sector(metric_name, value)
+                if z is None or pd.isna(z):
+                    continue
+
+                metric_zscores.append(z)
+                info['available'] += 1
+
             # Calculate composite score if we have at least one valid metric
             if metric_zscores:
-                stock_info[metric_group] = np.mean(metric_zscores)
+                stock_info[metric_group] = float(np.mean(metric_zscores))
                 category_is_missing[metric_group] = False
             else:
                 # No metrics resolved. Use 0.0 as a downstream placeholder
@@ -989,39 +1015,41 @@ def analyze_individual_stock(n_clicks, ticker):
             ])
             return {}, {}, None, error_message
 
-        # Get weights for the sector
         sector_weights = weights_df[weights_df['Sector'] == stock_sector].iloc[0]
-        
-        # Compute the composite z-score from the available category scores
+
+        # Five-factor composite. Drop any category that didn't resolve
+        # so the queried stock's composite isn't artificially pulled
+        # toward zero by a missing factor; renormalize the weights of
+        # the surviving categories to sum to 1.
+        ALL_CATEGORY_SCORES = [
+            'Risk_Score', 'Momentum_Score', 'Quality_Score',
+            'Size_Score', 'Growth_Score',
+        ]
         available_scores = []
-        total_weight = 0
-        
-        for metric_group in ['Risk_Score', 'Momentum_Score', 'Quality_Score']:
-            # Since we've set default values to 0, all scores should be available
+        total_weight = 0.0
+        for metric_group in ALL_CATEGORY_SCORES:
+            if category_is_missing[metric_group]:
+                continue
             weight = sector_weights[metric_group] / 100
             available_scores.append(stock_info[metric_group] * weight)
             total_weight += weight
-        
-        # Normalize the composite z-score based on the available weights
+
         if total_weight > 0:
             composite_z_score = sum(available_scores) * (1 / total_weight)
         else:
-            # Fallback to a simple average if weights are zero
-            composite_z_score = np.mean([
-                stock_info['Risk_Score'], 
-                stock_info['Momentum_Score'], 
-                stock_info['Quality_Score']
-            ])
-        
-        # Compute composite z-scores for every ticker in the sector
+            composite_z_score = float(np.mean([
+                stock_info[g] for g in ALL_CATEGORY_SCORES
+            ]))
+
         def calculate_composite_z_score(row):
             available_scores = []
-            total_weight = 0
-            for metric_group in ['Risk_Score', 'Momentum_Score', 'Quality_Score']:
-                if not pd.isna(row[metric_group]):
-                    weight = sector_weights[metric_group] / 100
-                    available_scores.append(row[metric_group] * weight)
-                    total_weight += weight
+            total_weight = 0.0
+            for metric_group in ALL_CATEGORY_SCORES:
+                if metric_group not in row or pd.isna(row[metric_group]):
+                    continue
+                weight = sector_weights[metric_group] / 100
+                available_scores.append(row[metric_group] * weight)
+                total_weight += weight
             return sum(available_scores) * (1 / total_weight) if available_scores and total_weight > 0 else np.nan
 
         sector_stocks['composite_z_score'] = sector_stocks.apply(calculate_composite_z_score, axis=1)
@@ -1271,6 +1299,12 @@ def analyze_individual_stock(n_clicks, ticker):
                 ("Quality Score",
                  "unavailable" if category_is_missing['Quality_Score']
                  else f"{stock_info['Quality_Score']:.2f}"),
+                ("Size Score",
+                 "unavailable" if category_is_missing['Size_Score']
+                 else f"{stock_info['Size_Score']:.2f}"),
+                ("Growth Score",
+                 "unavailable" if category_is_missing['Growth_Score']
+                 else f"{stock_info['Growth_Score']:.2f}"),
             ])
         ]
         
