@@ -99,10 +99,17 @@ None of those are in scope here. The deviation is best read as a structured way 
 - **Growth is single-metric.** yfinance does not populate `epsGrowth` or `cashFlowGrowth`, so the Growth composite reduces to within-sector z-scored revenue growth. A second data vendor would let the composite carry the variety its name suggests.
 - **Single data source.** No cross-vendor consistency check. Yahoo Finance field coverage is uneven (`earningsGrowth` is frequently null, banks return `ebitdaMargins=0.0` systematically) and the pipeline mean-imputes or NaN-skips through those gaps.
 
+An empirical backtest of the deviation signal — with all its caveats — is documented in `BACKTEST.md`. The headline numbers there look implausibly strong because the free-tier yfinance data forces several unavoidable shortcuts (notably look-ahead in the composite z-score and the EPS proxy, plus survivorship bias from a today-anchored Russell 1000 universe); `BACKTEST.md` §2 enumerates those constraints and §5 reads the results against them. Anyone asking "does this work?" should read that document before quoting any number.
+
 ## 9. What would meaningfully extend this
 
 In rough priority order:
 
-1. A walk-forward backtest of deviation-versus-forward-return, broken out by sector.
-2. A second data vendor for the volatile or missing fields (epsGrowth, cashFlowGrowth, banks' EBITDA margin) so Growth can broaden to a 2-3-metric composite and Quality stops silently dropping a metric for Financials.
-3. A proper PIT framework so the same fit can be re-run on historical dates (a prerequisite for (1) being trustworthy).
+1. **Point-in-time fundamentals** from a paid vendor (Compustat point-in-time, SimFin, S&P Capital IQ). This is the single highest-leverage change: it would invalidate the largest known confounder in the current backtest (look-ahead bias in the composite z-score and the per-ticker EPS proxy) and is a prerequisite for any of the items below being meaningful.
+2. **Point-in-time index membership** (CRSP historical Russell 1000 files, or equivalent). At each backtest snapshot, evaluate only the names that were Russell 1000 members on that date. Eliminates the survivorship bias documented in `BACKTEST.md` §2.2.
+3. **Longer sample period** — 10-15 years with regime-specific subsamples (2008-2009, 2020-Q1, 2022) — so the backtest can be evaluated under stress rather than only inside the 2023-2026 macro window the current run covers.
+4. **Multiple forward-return horizons** (1mo / 3mo / 6mo / 12mo) computed simultaneously. A signal that decays smoothly across horizons is more credible than one that only works at one horizon.
+5. **Bootstrap confidence intervals on the Sharpe and IC.** A block-bootstrap with a 3-6 month block length (matched to the autocorrelation structure of monthly equity factor returns) and a 95% CI around the headline numbers.
+6. **Walk-forward Ridge refit.** Re-fit the per-sector Ridge weights at each snapshot using only data available at that date (requires (1)). The current pipeline fits once on today's cross-section; a walk-forward fit removes a second layer of look-ahead.
+7. A second data vendor for the volatile or missing fields (epsGrowth, cashFlowGrowth, banks' EBITDA margin) so Growth can broaden to a 2-3-metric composite and Quality stops silently dropping a metric for Financials.
+8. **Sector-specific cost models** for the backtest. The current 10 bps round-trip is a flat textbook number; replacing it with name-level estimates (or at minimum a quintile-of-ADV-based scaling) would tighten the cost-sensitivity table in `BACKTEST.md` §3.
