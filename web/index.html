@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sector-Relative Valuation</title>
+  <meta name="description" content="Sector-relative equity valuation: Ridge-weighted factor scores vs trailing P/E across 11 GICS sectors of the Russell 1000." />
+
+  <!--
+    Third-party JS is pinned by version + sha384 SRI. Loading order
+    matters: PapaParse and simple-statistics are needed before app.js
+    boots; Plotly is large so it ships defer'd alongside the app.
+  -->
+  <script
+    src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"
+    integrity="sha384-D/t0ZMqQW31H3az8ktEiNb39wyKnS82iFY52QPACM+IjKW3jDUhyIgh2PApRqJZs"
+    crossorigin="anonymous"
+    referrerpolicy="no-referrer"
+    defer
+  ></script>
+  <script
+    src="https://cdn.jsdelivr.net/npm/simple-statistics@7.8.7/dist/simple-statistics.min.js"
+    integrity="sha384-hWBkNudBF0+J1E3RfN9lX/EXNrik6qH7gEBzRJIMthXRvDaAmgeVDqs07yYcrehb"
+    crossorigin="anonymous"
+    referrerpolicy="no-referrer"
+    defer
+  ></script>
+  <script
+    src="https://cdn.jsdelivr.net/npm/plotly.js-cartesian-dist-min@2.35.3/plotly-cartesian.min.js"
+    integrity="sha384-9oJXW1HYKfSvaayNC7t/2qlWoiBs6Ssl79Xc+OYzxnDRr0E8My0vbCsDXqlgV4y/"
+    crossorigin="anonymous"
+    referrerpolicy="no-referrer"
+    defer
+  ></script>
+
+  <link rel="stylesheet" href="/styles.css" />
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <main class="container">
+    <h1 class="page-title">Stock Analysis Dashboard</h1>
+
+    <!--
+      Radio-driven tab control. Each radio's :checked state selects the
+      matching .tab-panel via CSS sibling combinators. Works without JS,
+      which means the page is interactive before app.js executes.
+    -->
+    <div class="tabs">
+      <input type="radio" name="tab" id="tab-sector" class="tab-radio" checked />
+      <input type="radio" name="tab" id="tab-individual" class="tab-radio" />
+      <input type="radio" name="tab" id="tab-factor" class="tab-radio" />
+
+      <nav class="tab-bar" role="tablist">
+        <label for="tab-sector" class="tab-label" role="tab">Sector Analysis</label>
+        <label for="tab-individual" class="tab-label" role="tab">Individual Stock Analysis</label>
+        <label for="tab-factor" class="tab-label" role="tab">Factor Selection</label>
+      </nav>
+
+      <section class="tab-panel" id="panel-sector" role="tabpanel" aria-labelledby="tab-sector">
+        <div class="card">
+          <div class="dropdown-container">
+            <div class="dropdown-group">
+              <label class="field-label" for="sector-select">Select Sector:</label>
+              <select id="sector-select" class="select"></select>
+            </div>
+            <div class="dropdown-group">
+              <label class="field-label" for="company-select">Select Company:</label>
+              <select id="company-select" class="select"></select>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div id="sector-scatter" class="plot" aria-live="polite"></div>
+        </div>
+
+        <div class="card">
+          <div id="sector-company-info" aria-live="polite"></div>
+        </div>
+      </section>
+
+      <section class="tab-panel" id="panel-individual" role="tabpanel" aria-labelledby="tab-individual">
+        <div class="card">
+          <div class="input-row">
+            <label class="field-label" for="ticker-input">Enter Stock Ticker:</label>
+            <input id="ticker-input" class="text-input" type="text" placeholder="e.g., AAPL" autocomplete="off" spellcheck="false" />
+            <button id="analyze-button" class="button" type="button">Analyze</button>
+          </div>
+          <div id="analysis-status" class="status-line" aria-live="polite"></div>
+        </div>
+
+        <div class="card">
+          <div id="individual-scatter" class="plot" aria-live="polite"></div>
+        </div>
+
+        <div class="card">
+          <div id="individual-deviation" class="plot plot-short" aria-live="polite"></div>
+        </div>
+
+        <div class="card">
+          <div id="individual-info" aria-live="polite"></div>
+        </div>
+      </section>
+
+      <section class="tab-panel" id="panel-factor" role="tabpanel" aria-labelledby="tab-factor">
+        <div class="card">
+          <h2 class="section-title">Select Factors for PE Ratio Prediction</h2>
+          <div class="factor-grid">
+            <div class="factor-controls">
+              <fieldset class="factor-fieldset">
+                <legend class="visually-hidden">Factor groups</legend>
+                <label class="factor-group" data-group="risk">
+                  <input type="checkbox" class="factor-checkbox" value="risk" checked />
+                  <span class="factor-name">Risk</span>
+                </label>
+                <div class="metrics-display" data-group="risk">
+                  <span class="metrics-caption">Composed of (equal-weighted z-scores):</span>
+                  <ul class="metrics-list">
+                    <li>Max Drawdown</li>
+                    <li>Debt-to-Equity</li>
+                    <li>Return SD</li>
+                  </ul>
+                </div>
+
+                <label class="factor-group" data-group="momentum">
+                  <input type="checkbox" class="factor-checkbox" value="momentum" checked />
+                  <span class="factor-name">Momentum</span>
+                </label>
+                <div class="metrics-display" data-group="momentum">
+                  <span class="metrics-caption">Composed of (equal-weighted z-scores):</span>
+                  <ul class="metrics-list">
+                    <li>Price Change 12M</li>
+                    <li>RSI</li>
+                    <li>Earnings Growth</li>
+                  </ul>
+                </div>
+
+                <label class="factor-group" data-group="quality">
+                  <input type="checkbox" class="factor-checkbox" value="quality" checked />
+                  <span class="factor-name">Quality</span>
+                </label>
+                <div class="metrics-display" data-group="quality">
+                  <span class="metrics-caption">Composed of (equal-weighted z-scores):</span>
+                  <ul class="metrics-list">
+                    <li>ROE</li>
+                    <li>ROA</li>
+                    <li>Operating Margin</li>
+                    <li>EBITDA Margin</li>
+                  </ul>
+                </div>
+
+                <label class="factor-group" data-group="size">
+                  <input type="checkbox" class="factor-checkbox" value="size" checked />
+                  <span class="factor-name">Size</span>
+                </label>
+                <div class="metrics-display" data-group="size">
+                  <span class="metrics-caption">Composed of (z-score within sector):</span>
+                  <ul class="metrics-list">
+                    <li>log(Market Cap)</li>
+                  </ul>
+                </div>
+
+                <label class="factor-group" data-group="growth">
+                  <input type="checkbox" class="factor-checkbox" value="growth" checked />
+                  <span class="factor-name">Growth</span>
+                </label>
+                <div class="metrics-display" data-group="growth">
+                  <span class="metrics-caption">Composed of (z-score within sector):</span>
+                  <ul class="metrics-list">
+                    <li>Revenue Growth</li>
+                  </ul>
+                </div>
+              </fieldset>
+            </div>
+
+            <div class="factor-output">
+              <h3 class="section-title">Regression Results</h3>
+              <button id="recalculate-button" class="button" type="button">Recalculate Regression</button>
+              <pre id="regression-output" class="regression-output"></pre>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <footer class="footer" id="backtest-footer"></footer>
+  </main>
+</body>
+</html>

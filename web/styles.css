@@ -1,0 +1,465 @@
+/*
+ * Visual identity ported from src/dashboard.py. Color palette, font
+ * stack, card chrome, and monospace regression box match the Dash
+ * version so a viewer who compares the two does not see a regression.
+ */
+
+:root {
+  --color-bg: #f8f9fa;
+  --color-text: #2c3e50;
+  --color-primary: #3498db;
+  --color-secondary: #e74c3c;
+  --color-accent: #2ecc71;
+  --color-light-gray: #f0f0f0;
+  --color-border: #e1e4e8;
+  --color-amber: #d97706;
+
+  --font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+
+  --radius-card: 12px;
+  --radius-control: 4px;
+  --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-family);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.container {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 40px 24px;
+  min-height: 100vh;
+}
+
+.page-title {
+  font-size: 32px;
+  font-weight: 600;
+  color: var(--color-text);
+  text-align: center;
+  margin: 0 0 32px;
+}
+
+.card {
+  background: white;
+  padding: 24px;
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  margin-bottom: 24px;
+}
+
+/* ------------------------------------------------------------------
+ * Tab control. Radios are visually hidden but remain focusable. The
+ * sibling combinators below light up the matching .tab-panel and the
+ * matching label based on the :checked radio.
+ * ------------------------------------------------------------------ */
+
+.tabs {
+  position: relative;
+}
+
+.tab-radio {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+  width: 0;
+  height: 0;
+}
+
+.tab-bar {
+  display: flex;
+  border-bottom: 1px solid var(--color-border);
+  margin-bottom: 24px;
+  gap: 0;
+}
+
+.tab-label {
+  padding: 12px 20px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text);
+  border-bottom: 2px solid transparent;
+  user-select: none;
+  transition: color 150ms ease, border-color 150ms ease;
+}
+
+.tab-label:hover {
+  color: var(--color-primary);
+}
+
+#tab-sector:checked ~ .tab-bar label[for="tab-sector"],
+#tab-individual:checked ~ .tab-bar label[for="tab-individual"],
+#tab-factor:checked ~ .tab-bar label[for="tab-factor"] {
+  color: var(--color-primary);
+  border-bottom-color: var(--color-primary);
+}
+
+.tab-panel {
+  display: none;
+}
+
+#tab-sector:checked ~ #panel-sector,
+#tab-individual:checked ~ #panel-individual,
+#tab-factor:checked ~ #panel-factor {
+  display: block;
+}
+
+/* ------------------------------------------------------------------
+ * Form controls.
+ * ------------------------------------------------------------------ */
+
+.dropdown-container {
+  display: flex;
+  justify-content: center;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.dropdown-group {
+  display: flex;
+  flex-direction: column;
+  min-width: 280px;
+}
+
+.field-label {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--color-text);
+  margin-bottom: 8px;
+}
+
+.select,
+.text-input {
+  padding: 8px 12px;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--color-border);
+  font-family: var(--font-family);
+  font-size: 14px;
+  color: var(--color-text);
+  background: white;
+  width: 300px;
+}
+
+.text-input {
+  width: 200px;
+}
+
+.select:focus,
+.text-input:focus {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}
+
+.button {
+  background: var(--color-primary);
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: var(--radius-control);
+  cursor: pointer;
+  font-family: var(--font-family);
+  font-size: 14px;
+  font-weight: 500;
+  transition: filter 150ms ease;
+}
+
+.button:hover {
+  filter: brightness(0.94);
+}
+
+.button:active {
+  filter: brightness(0.88);
+}
+
+.button:focus-visible {
+  outline: 2px solid var(--color-text);
+  outline-offset: 2px;
+}
+
+.input-row {
+  display: flex;
+  align-items: end;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.input-row .field-label {
+  margin-bottom: 0;
+  align-self: center;
+}
+
+.status-line {
+  text-align: center;
+  font-size: 14px;
+  color: var(--color-text);
+  min-height: 22px;
+}
+
+.status-line .status-error {
+  color: var(--color-secondary);
+  font-weight: 500;
+}
+
+.status-line .status-success-ticker {
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+/* ------------------------------------------------------------------
+ * Plot containers.
+ * ------------------------------------------------------------------ */
+
+.plot {
+  width: 100%;
+  min-height: 600px;
+}
+
+.plot-short {
+  min-height: 200px;
+}
+
+/* ------------------------------------------------------------------
+ * Company info card.
+ * ------------------------------------------------------------------ */
+
+.info-block {
+  font-size: 14px;
+}
+
+.info-block h3 {
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--color-text);
+  margin: 0 0 16px;
+  border-bottom: 2px solid var(--color-light-gray);
+  padding-bottom: 12px;
+}
+
+.info-block h4 {
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--color-text);
+  margin: 16px 0 12px;
+}
+
+.info-block p {
+  margin: 0 0 8px;
+  font-size: 16px;
+}
+
+.info-row {
+  display: flex;
+  margin-bottom: 8px;
+  font-size: 14px;
+}
+
+.info-row .info-label {
+  font-weight: 500;
+  margin-right: 4px;
+}
+
+.info-row .info-value-unavailable {
+  color: var(--color-secondary);
+  font-style: italic;
+}
+
+/* ------------------------------------------------------------------
+ * Factor Selection tab.
+ * ------------------------------------------------------------------ */
+
+.section-title {
+  font-size: 24px;
+  font-weight: 500;
+  color: var(--color-text);
+  margin: 0 0 16px;
+}
+
+.factor-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 30px;
+}
+
+.factor-controls {
+  flex: 1;
+  min-width: 300px;
+}
+
+.factor-output {
+  flex: 2;
+  min-width: 500px;
+}
+
+.factor-fieldset {
+  border: none;
+  padding: 0;
+  margin: 0;
+}
+
+.factor-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+.factor-checkbox {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.factor-name {
+  font-size: 14px;
+}
+
+.metrics-display {
+  margin-bottom: 15px;
+}
+
+.metrics-display.is-hidden {
+  display: none;
+}
+
+.metrics-caption {
+  font-size: 13px;
+  color: var(--color-text);
+  margin-left: 20px;
+}
+
+.metrics-list {
+  margin: 4px 0 0 40px;
+  padding: 0;
+  font-size: 13px;
+  list-style: disc inside;
+}
+
+.metrics-list li {
+  list-style-position: inside;
+  margin-left: 0;
+}
+
+.regression-output {
+  font-family: var(--font-mono);
+  white-space: pre-wrap;
+  overflow-x: auto;
+  border: 1px solid var(--color-border);
+  padding: 15px;
+  border-radius: var(--radius-control);
+  background: var(--color-bg);
+  font-size: 12px;
+  color: var(--color-text);
+  margin-top: 12px;
+  min-height: 100px;
+}
+
+/* ------------------------------------------------------------------
+ * Backtest credibility footer.
+ * ------------------------------------------------------------------ */
+
+.footer {
+  margin-top: 16px;
+  padding: 20px 24px;
+  background: white;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  font-size: 13px;
+  color: var(--color-text);
+  line-height: 1.55;
+}
+
+.footer h4 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0 0 8px;
+  color: var(--color-text);
+}
+
+.footer p {
+  margin: 0 0 6px;
+}
+
+.footer a {
+  color: var(--color-primary);
+  text-decoration: none;
+}
+
+.footer a:hover {
+  text-decoration: underline;
+}
+
+.footer .footer-links {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #64748b;
+}
+
+/* ------------------------------------------------------------------
+ * Accessibility helpers.
+ * ------------------------------------------------------------------ */
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ------------------------------------------------------------------
+ * Responsive tweaks.
+ * ------------------------------------------------------------------ */
+
+@media (max-width: 720px) {
+  .container {
+    padding: 20px 12px;
+  }
+
+  .page-title {
+    font-size: 24px;
+    margin-bottom: 20px;
+  }
+
+  .card {
+    padding: 16px;
+  }
+
+  .select,
+  .text-input {
+    width: 100%;
+  }
+
+  .dropdown-group {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .factor-output {
+    min-width: 0;
+  }
+}
