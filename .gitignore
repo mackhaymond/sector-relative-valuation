@@ -44,3 +44,7 @@ config.local.*
 secrets/
 *.pem
 *.key
+
+# Backtest price cache (regenerable from yfinance; large parquet blob
+# and we don't want stale cached prices accidentally committed)
+backtest_cache/
