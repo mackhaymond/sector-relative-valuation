@@ -2,13 +2,15 @@
 
 A sector-relative equity valuation model that fits Ridge-weighted factor scores to trailing P/E ratios across 11 GICS sectors and flags companies trading at a meaningful premium or discount to their sector-implied fair value.
 
+**Live dashboard:** [valuation.mackhaymond.co](https://valuation.mackhaymond.co/)
+
 ## What it does
 
 Comparing P/E ratios across sectors is uninformative. A utility at 18x and a software company at 18x are not "similarly valued" — they sit in industries with structurally different growth, capital intensity, and cost of capital. Any cross-sector ranking on raw multiples picks up sector composition, not mispricing.
 
 This project addresses that by valuing companies *within* their own sector. For each of the 11 GICS sectors it (1) ingests fundamentals and price history for the full Russell 1000 constituent list from Yahoo Finance, (2) reduces five factor groups — Risk, Momentum, Quality, Size, and Growth — to within-sector z-scored composites, and (3) fits a per-sector Ridge regression mapping those composites to the cross-section of trailing P/E ratios. The Ridge alpha is cross-validated per sector. The regression coefficients become sector-specific factor weights, and the resulting predicted P/E acts as a sector-implied fair value benchmark.
 
-Mispricings surface as the deviation between a company's actual P/E and its sector-implied predicted P/E. A Dash/Plotly dashboard surfaces the sector-level fit, the per-company deviation, and a single-stock lookup that scores a user-supplied ticker against its sector peers in real time.
+Mispricings surface as the deviation between a company's actual P/E and its sector-implied predicted P/E. A static SPA at [valuation.mackhaymond.co](https://valuation.mackhaymond.co/) surfaces the sector-level fit, the per-company deviation, and a single-stock lookup that scores a user-supplied ticker against its sector peers in real time (backed by a Cloudflare Pages Function that proxies Yahoo Finance).
 
 ## Methodology
 
@@ -22,59 +24,82 @@ Mispricings surface as the deviation between a company's actual P/E and its sect
 
 ## Tech stack
 
-Python 3.12, managed with [uv](https://github.com/astral-sh/uv). Pinned versions from `pyproject.toml`:
+**Pipeline (Python 3.12, managed with [uv](https://github.com/astral-sh/uv)):**
 
 - `pandas ^2.2.3`, `numpy ^2.1.3`, `scipy ^1.14.1`, `statsmodels ^0.14.4` — data handling and regression
 - `scikit-learn ^1.5.2` — Ridge regression and standardization
 - `yfinance ^0.2.49` — fundamentals and price history
 - `aiohttp ^3.11.2`, `asyncio` — concurrent data collection with rate limiting
-- `dash ^2.18.2`, `plotly ^5.24.1` — interactive dashboard
 - `tqdm ^4.67.0` — progress reporting
+- `simfin`, `python-dotenv` — point-in-time fundamentals for the backtest (`src/backtest.py`)
+- `matplotlib ^3.9.2` — backtest artifact rendering only (not part of the production dashboard)
 
-Containerized via a multi-stage `Dockerfile`. Data refresh runs in GitHub Actions; deployment is orchestrated via Nomad.
+**Dashboard (vanilla web + Cloudflare Pages):**
+
+- `index.html` + `app.js` + `styles.css` — three-tab SPA, no framework
+- [Plotly.js cartesian dist](https://plotly.com/javascript/) v2.35.3 — scatter + bar + annotations (pinned via jsdelivr with sha384 SRI)
+- [PapaParse](https://www.papaparse.com/) v5.4.1 — CSV ingestion
+- [simple-statistics](https://simplestatistics.org/) v7.8.7 — univariate OLS; multivariate OLS is hand-rolled in `app.js` against the normal equations with Numerical-Recipes incomplete-beta for t / F p-values
+- [yahoo-finance2](https://github.com/gadicc/yahoo-finance2) v3.14 — single-ticker proxy, run inside a Cloudflare Pages Function (`functions/api/yf.js`)
+- Edge-cached on Cloudflare's `caches.default`; 5-minute TTL for fundamentals
+
+Data refresh runs in GitHub Actions (`.github/workflows/run-and-commit.yml`); the push of refreshed CSVs auto-triggers a Cloudflare Pages redeploy.
 
 ## Repository structure
 
 ```
 .
+├── index.html               # Static SPA entry point - three tabs, CDN-pinned JS deps
+├── app.js                   # Sector / Individual Stock / Factor tabs + Plotly + OLS
+├── styles.css               # Visual identity (palette, fonts, card chrome)
+├── functions/api/yf.js      # Cloudflare Pages Function bound to /api/yf
+├── wrangler.jsonc           # Cloudflare runtime config (nodejs_compat, __dirname shim)
+├── package.json             # yahoo-finance2 + wrangler, npm run dev / deploy
+├── DEPLOYMENT.md            # First-time Pages setup click-path, troubleshooting
 ├── src/
 │   ├── data.py              # Async collection of 5 factor groups from Yahoo Finance
 │   │                        # plus within-sector z-scoring and 3.0σ outlier filter
 │   ├── generate_weights.py  # Per-sector Ridge regression and composite z-score writeback
-│   └── dashboard.py         # Dash/Plotly UI: sector view, single-stock lookup, factor selector
+│   ├── backtest.py          # 36-month walk-forward PIT backtest (see BACKTEST.md)
+│   └── pit_fundamentals.py  # SimFin point-in-time fetcher used by the backtest
 ├── sector_analysis.csv      # Simplified per-ticker output (sector, composites, PE, composite_z_score)
 ├── sector_analysis_full.csv # Full per-ticker output with every collected metric and z-score
 ├── weights.csv              # Per-sector Ridge-derived factor weights
-├── Dockerfile               # Multi-stage build, non-root runtime
-├── jobspec.nomad.hcl        # Nomad deployment spec
-├── pyproject.toml           # uv-managed dependencies and project metadata
-├── uv.lock                  # locked dependency graph
-└── .github/workflows/       # CI: Docker publish + scheduled data refresh
+├── backtest_artifacts/      # Backtest chart PNGs (cumulative return, IC by sector)
+├── data/russell1000.csv     # Universe definition (ticker + GICS sector slug)
+├── pyproject.toml           # uv-managed Python dependencies
+├── uv.lock                  # Locked Python dependency graph
+└── .github/workflows/       # CI: scheduled data refresh that commits CSVs back to main
 ```
 
 ## Running locally
 
-Prerequisites: Python 3.12, [uv](https://github.com/astral-sh/uv).
+Prerequisites: Python 3.12 + [uv](https://github.com/astral-sh/uv) for the pipeline; Node 20+ for the dashboard.
+
+**Dashboard (vanilla JS + Cloudflare Pages Function):**
+
+```sh
+npm install
+npm run dev   # serves http://127.0.0.1:8788
+```
+
+This boots `wrangler pages dev .` at the repo root and bundles `functions/api/yf.js` as the `/api/yf` Pages Function. The three CSVs in the repo root are served as static assets.
+
+**Pipeline (refresh the CSVs the dashboard reads):**
 
 ```sh
 uv sync
-uv run python src/data.py              # refresh the dataset (rate-limited Yahoo calls; takes minutes)
-uv run python src/generate_weights.py  # fit per-sector Ridge weights
-uv run python src/dashboard.py         # serve dashboard on http://localhost:8050
+uv run python src/data.py              # rate-limited Yahoo calls; takes minutes
+uv run python src/generate_weights.py  # fit per-sector Ridge weights, write weights.csv + composite_z_score
 ```
 
-To run the prebuilt container:
+The repo ships with a recent `sector_analysis.csv`, `sector_analysis_full.csv`, and `weights.csv` so the dashboard renders without re-running the refresh first.
 
-```sh
-docker build -t sector-relative-valuation .
-docker run -p 8050:8050 sector-relative-valuation
-```
-
-The repo ships with a recent `sector_analysis.csv` and `weights.csv` so the dashboard can be served without refreshing the dataset first.
+Full Cloudflare deploy instructions live in `DEPLOYMENT.md`.
 
 ## Limitations and known gaps
 
-- **No formal backtest.** The model is fit cross-sectionally on a single snapshot of fundamentals; predicted-vs-actual P/E deviation has not been validated as a forward-return signal. There is no holdout, walk-forward, or transaction-cost analysis. Treat all output as descriptive, not prescriptive.
+- **The backtest is a null result.** A 36-month point-in-time backtest (`BACKTEST.md`, `src/backtest.py`) with walk-forward Ridge refit and SimFin PIT fundamentals reports mean IC -0.013 (|t| = 1.17, not significant) and an annualized long-short Sharpe of 0.05 net of 10 bps cost. The deviation signal does *not* predict 1-month forward returns under PIT conditions on this universe and window. The dashboard's deviation column is best read as a structured description of relative valuation, not a forecast.
 - **Coverage is the Russell 1000.** ~1,000 large- and mid-cap US-listed names across 11 sectors. Conclusions do not generalize to small caps, micro caps, or international names that are not Russell constituents.
 - **R² varies materially by sector.** The within-sector linear fit between composite z-score and P/E is informative in some sectors and weak in others. The dashboard displays the R² per sector so this is visible at a glance rather than buried.
 - **Growth is single-metric.** yfinance does not populate `epsGrowth` or `cashFlowGrowth`; the Growth composite reduces to within-sector z-scored revenue growth. An earlier iteration collected a separate Profitability category (folded into Quality via EBITDA margin instead), Value (mechanically circular with the trailing-P/E target), and Liquidity (weak P/E predictor that breaks for financials); all three were dropped from the pipeline.
