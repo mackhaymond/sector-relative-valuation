@@ -457,6 +457,336 @@ const sectorTab = {
   },
 };
 
+// ---------------------------------------------------------------------
+// Linear algebra + distribution helpers for the Factor Selection tab.
+// Multivariate OLS isn't in simple-statistics; the routines below solve
+// (X^T X) beta = X^T y by Gaussian elimination with partial pivoting,
+// and back out two-sided t- and F-test p-values via the regularized
+// incomplete beta function (Numerical Recipes 6.4 betacf + lgamma).
+// Accurate to ~6 significant figures - enough for any p-value a
+// reader of a 'statsmodels-style' summary would care about.
+// ---------------------------------------------------------------------
+
+function matrixTranspose(A) {
+  const rows = A.length;
+  const cols = A[0].length;
+  const T = Array.from({ length: cols }, () => new Array(rows));
+  for (let i = 0; i < rows; i++) for (let j = 0; j < cols; j++) T[j][i] = A[i][j];
+  return T;
+}
+
+function matMul(A, B) {
+  const m = A.length;
+  const n = B[0].length;
+  const k = B.length;
+  const C = Array.from({ length: m }, () => new Array(n).fill(0));
+  for (let i = 0; i < m; i++) {
+    for (let j = 0; j < n; j++) {
+      let s = 0;
+      for (let r = 0; r < k; r++) s += A[i][r] * B[r][j];
+      C[i][j] = s;
+    }
+  }
+  return C;
+}
+
+function matVec(A, v) {
+  const m = A.length;
+  const out = new Array(m).fill(0);
+  for (let i = 0; i < m; i++) {
+    let s = 0;
+    for (let j = 0; j < v.length; j++) s += A[i][j] * v[j];
+    out[i] = s;
+  }
+  return out;
+}
+
+function invertSymmetric(A) {
+  const n = A.length;
+  const aug = Array.from({ length: n }, (_, i) => {
+    const row = new Array(2 * n).fill(0);
+    for (let j = 0; j < n; j++) row[j] = A[i][j];
+    row[n + i] = 1;
+    return row;
+  });
+  for (let i = 0; i < n; i++) {
+    let pivotRow = i;
+    let pivotMag = Math.abs(aug[i][i]);
+    for (let r = i + 1; r < n; r++) {
+      if (Math.abs(aug[r][i]) > pivotMag) {
+        pivotMag = Math.abs(aug[r][i]);
+        pivotRow = r;
+      }
+    }
+    if (pivotMag < 1e-12) throw new Error("Singular matrix - factor collinearity is severe");
+    if (pivotRow !== i) [aug[i], aug[pivotRow]] = [aug[pivotRow], aug[i]];
+    const pivot = aug[i][i];
+    for (let j = 0; j < 2 * n; j++) aug[i][j] /= pivot;
+    for (let r = 0; r < n; r++) {
+      if (r === i) continue;
+      const factor = aug[r][i];
+      if (factor === 0) continue;
+      for (let j = 0; j < 2 * n; j++) aug[r][j] -= factor * aug[i][j];
+    }
+  }
+  return aug.map((row) => row.slice(n));
+}
+
+function lgamma(x) {
+  const c = [
+    76.18009172947146, -86.50532032941677, 24.01409824083091,
+    -1.231739572450155, 1.208650973866179e-3, -5.395239384953e-6,
+  ];
+  let y = x;
+  let tmp = x + 5.5;
+  tmp -= (x + 0.5) * Math.log(tmp);
+  let ser = 1.000000000190015;
+  for (let j = 0; j < 6; j++) {
+    y += 1;
+    ser += c[j] / y;
+  }
+  return -tmp + Math.log((2.5066282746310005 * ser) / x);
+}
+
+function betacf(a, b, x) {
+  const FPMIN = 1e-300;
+  const EPS = 3e-7;
+  const maxIters = 200;
+  const qab = a + b;
+  const qap = a + 1;
+  const qam = a - 1;
+  let c = 1;
+  let d = 1 - (qab * x) / qap;
+  if (Math.abs(d) < FPMIN) d = FPMIN;
+  d = 1 / d;
+  let h = d;
+  for (let m = 1; m <= maxIters; m++) {
+    const m2 = 2 * m;
+    let aa = (m * (b - m) * x) / ((qam + m2) * (a + m2));
+    d = 1 + aa * d;
+    if (Math.abs(d) < FPMIN) d = FPMIN;
+    c = 1 + aa / c;
+    if (Math.abs(c) < FPMIN) c = FPMIN;
+    d = 1 / d;
+    h *= d * c;
+    aa = (-(a + m) * (qab + m) * x) / ((a + m2) * (qap + m2));
+    d = 1 + aa * d;
+    if (Math.abs(d) < FPMIN) d = FPMIN;
+    c = 1 + aa / c;
+    if (Math.abs(c) < FPMIN) c = FPMIN;
+    d = 1 / d;
+    const del = d * c;
+    h *= del;
+    if (Math.abs(del - 1) < EPS) return h;
+  }
+  return h;
+}
+
+function regularizedIncompleteBeta(a, b, x) {
+  if (x < 0 || x > 1) return Number.NaN;
+  if (x === 0 || x === 1) return x;
+  const bt = Math.exp(
+    lgamma(a + b) - lgamma(a) - lgamma(b) + a * Math.log(x) + b * Math.log(1 - x),
+  );
+  if (x < (a + 1) / (a + b + 2)) {
+    return (bt * betacf(a, b, x)) / a;
+  }
+  return 1 - (bt * betacf(b, a, 1 - x)) / b;
+}
+
+function studentTTwoSidedPValue(t, df) {
+  if (!Number.isFinite(t) || df <= 0) return Number.NaN;
+  const x = df / (df + t * t);
+  return regularizedIncompleteBeta(df / 2, 0.5, x);
+}
+
+function fDistributionPValue(f, d1, d2) {
+  if (!Number.isFinite(f) || f < 0 || d1 <= 0 || d2 <= 0) return Number.NaN;
+  const x = d2 / (d2 + d1 * f);
+  return regularizedIncompleteBeta(d2 / 2, d1 / 2, x);
+}
+
+function fitOls(X, y) {
+  const n = X.length;
+  const p = X[0].length;
+  if (n <= p) throw new Error(`Need n > p (n=${n}, p=${p})`);
+  const Xt = matrixTranspose(X);
+  const XtX = matMul(Xt, X);
+  const XtY = matVec(Xt, y);
+  const XtXInv = invertSymmetric(XtX);
+  const beta = matVec(XtXInv, XtY);
+  const yHat = matVec(X, beta);
+  const residuals = y.map((yi, i) => yi - yHat[i]);
+  const ssRes = residuals.reduce((acc, e) => acc + e * e, 0);
+  const yMean = y.reduce((a, b) => a + b, 0) / n;
+  const ssTot = y.reduce((acc, yi) => acc + (yi - yMean) ** 2, 0);
+  const rSquared = ssTot === 0 ? Number.NaN : 1 - ssRes / ssTot;
+  const dfModel = p - 1;
+  const dfResid = n - p;
+  const sigma2 = ssRes / dfResid;
+  const adjR2 = Number.isFinite(rSquared)
+    ? 1 - (1 - rSquared) * ((n - 1) / dfResid)
+    : Number.NaN;
+  const fStat =
+    dfModel > 0 && ssTot > 0 ? ((ssTot - ssRes) / dfModel) / sigma2 : Number.NaN;
+  const fPValue = Number.isFinite(fStat) ? fDistributionPValue(fStat, dfModel, dfResid) : Number.NaN;
+  const standardErrors = XtXInv.map((row, i) => Math.sqrt(sigma2 * row[i]));
+  const tStats = beta.map((b, i) => (standardErrors[i] === 0 ? Number.NaN : b / standardErrors[i]));
+  const pValues = tStats.map((t) => studentTTwoSidedPValue(t, dfResid));
+  return {
+    n,
+    p,
+    dfModel,
+    dfResid,
+    beta,
+    standardErrors,
+    tStats,
+    pValues,
+    rSquared,
+    adjR2,
+    fStat,
+    fPValue,
+    sigma: Math.sqrt(sigma2),
+  };
+}
+
+const FACTOR_GROUPS = ["risk", "momentum", "quality", "size", "growth"];
+
+const GROUP_TO_COLUMN = {
+  risk: "Risk_Score",
+  momentum: "Momentum_Score",
+  quality: "Quality_Score",
+  size: "Size_Score",
+  growth: "Growth_Score",
+};
+
+const GROUP_TO_METRICS = {
+  risk: ["MaxDrawdown", "DebtToEquity", "ReturnSD"],
+  momentum: ["PriceChange12M", "RSI", "EarningsGrowth"],
+  quality: ["ROE", "ROA", "OperatingMargin", "EBITDAMargin"],
+  size: ["LogMarketCap"],
+  growth: ["RevenueGrowth"],
+};
+
+const factorTab = {
+  initialized: false,
+
+  async init() {
+    if (this.initialized) return;
+    this.initialized = true;
+    await sectorTab.init();
+    this.bindMetricToggles();
+    document.getElementById("recalculate-button").addEventListener("click", () => this.run());
+    this.run();
+  },
+
+  bindMetricToggles() {
+    for (const group of FACTOR_GROUPS) {
+      const cb = document.querySelector(`.factor-checkbox[value="${group}"]`);
+      if (!cb) continue;
+      cb.addEventListener("change", () => {
+        const display = document.querySelector(`.metrics-display[data-group="${group}"]`);
+        if (display) display.classList.toggle("is-hidden", !cb.checked);
+      });
+    }
+  },
+
+  selectedGroups() {
+    const selected = FACTOR_GROUPS.filter((g) => {
+      const cb = document.querySelector(`.factor-checkbox[value="${g}"]`);
+      return cb && cb.checked;
+    });
+    return selected.length ? selected : [...FACTOR_GROUPS];
+  },
+
+  run() {
+    const output = document.getElementById("regression-output");
+    const groups = this.selectedGroups();
+    const cols = groups.map((g) => GROUP_TO_COLUMN[g]);
+
+    const rows = (sectorTab.rows || []).filter(
+      (r) => Number.isFinite(Number(r.PE)) && cols.every((c) => Number.isFinite(Number(r[c]))),
+    );
+    if (rows.length === 0) {
+      output.textContent = "No rows available for the selected factor groups.";
+      return;
+    }
+
+    const X = rows.map((r) => [1, ...cols.map((c) => Number(r[c]))]);
+    const y = rows.map((r) => Number(r.PE));
+
+    let result;
+    try {
+      result = fitOls(X, y);
+    } catch (err) {
+      output.textContent = `Regression failed: ${err.message}`;
+      return;
+    }
+
+    output.textContent = this.formatSummary(groups, cols, result);
+  },
+
+  formatSummary(groups, cols, r) {
+    const lines = [
+      "OLS Regression Results for PE Ratio prediction",
+      "=====================================",
+      "",
+      "Selected Factor Groups:",
+    ];
+    for (const g of groups) {
+      lines.push(`- ${capitalize(g)}: ${GROUP_TO_METRICS[g].join(", ")}`);
+    }
+    lines.push("");
+    lines.push("Regression Statistics:");
+    lines.push(`R-squared: ${formatNumber(r.rSquared, 4)}`);
+    lines.push(`Adjusted R-squared: ${formatNumber(r.adjR2, 4)}`);
+    lines.push(`F-statistic: ${formatNumber(r.fStat, 4)}`);
+    lines.push(`Prob (F-statistic): ${formatNumber(r.fPValue, 4)}`);
+    lines.push("");
+    lines.push("Coefficients:");
+    const paramNames = ["const", ...cols];
+    for (let i = 0; i < paramNames.length; i++) {
+      lines.push(
+        `${paramNames[i]}: ${formatNumber(r.beta[i], 4)} (p=${formatNumber(r.pValues[i], 4)})`,
+      );
+    }
+    lines.push("");
+    lines.push("Full Statistical Summary:");
+    lines.push("----------------------------");
+    lines.push(this.formatStatsmodelsTable(paramNames, r));
+    return lines.join("\n");
+  },
+
+  formatStatsmodelsTable(paramNames, r) {
+    const header = [
+      `${"".padEnd(20)} ${"coef".padStart(12)} ${"std err".padStart(12)} ${"t".padStart(10)} ${"P>|t|".padStart(10)}`,
+      `${"-".repeat(70)}`,
+    ];
+    const body = paramNames.map(
+      (name, i) =>
+        `${name.padEnd(20)} ${formatNumber(r.beta[i], 4).padStart(12)} ${formatNumber(r.standardErrors[i], 4).padStart(12)} ${formatNumber(r.tStats[i], 3).padStart(10)} ${formatNumber(r.pValues[i], 3).padStart(10)}`,
+    );
+    const footer = [
+      `${"-".repeat(70)}`,
+      `Observations: ${r.n}`,
+      `Df Residuals: ${r.dfResid}`,
+      `Df Model:     ${r.dfModel}`,
+      `Sigma (RMSE): ${formatNumber(r.sigma, 4)}`,
+    ];
+    return [...header, ...body, ...footer].join("\n");
+  },
+};
+
+function capitalize(s) {
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : "";
+}
+
+function formatNumber(n, digits) {
+  if (!Number.isFinite(n)) return "NaN";
+  if (Math.abs(n) >= 1e6 || (Math.abs(n) < 1e-4 && n !== 0)) return n.toExponential(digits);
+  return n.toFixed(digits);
+}
+
 function renderBacktestFooter() {
   const el = document.getElementById("backtest-footer");
   if (!el) return;
@@ -464,13 +794,15 @@ function renderBacktestFooter() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
-  for (const radio of document.querySelectorAll(".tab-radio")) {
-    radio.addEventListener("change", () => {});
-  }
   sectorTab.init().catch((err) => {
     console.error("Failed to initialise Sector Analysis tab", err);
     const target = document.getElementById("sector-scatter");
     target.innerHTML = `<p style="color:${COLORS.secondary};padding:24px">Failed to load sector_analysis.csv. ${htmlEscape(err.message)}</p>`;
+  });
+  factorTab.init().catch((err) => {
+    console.error("Failed to initialise Factor Selection tab", err);
+    const target = document.getElementById("regression-output");
+    if (target) target.textContent = `Failed to initialise: ${err.message}`;
   });
   renderBacktestFooter();
 });
