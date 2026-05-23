@@ -29,6 +29,17 @@ jobs:
     - name: Run generate_weights.py
       run: uv run python src/generate_weights.py
 
+    - name: Verify all 11 sectors are present in weights.csv
+      run: |
+        SECTOR_COUNT=$(tail -n +2 weights.csv | wc -l | tr -d ' ')
+        if [ "$SECTOR_COUNT" -lt 11 ]; then
+          echo "::error::weights.csv has $SECTOR_COUNT sectors (expected 11)."
+          echo "Sectors present:"
+          cut -d, -f1 weights.csv | tail -n +2
+          exit 1
+        fi
+        echo "All $SECTOR_COUNT sectors present in weights.csv."
+
     - name: Commit changes
       run: |
         git config --global user.name 'github-actions[bot]'

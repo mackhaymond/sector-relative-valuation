@@ -7,6 +7,7 @@ import time
 import asyncio
 import aiohttp
 import os
+import sys
 from typing import Any, Dict, List, Optional, Tuple
 
 #######################
@@ -397,22 +398,43 @@ async def analyze_sectors_async(sectors: List[str] = SECTORS) -> Optional[pd.Dat
     """Analyze multiple sectors with controlled concurrency.
 
     Returns the combined simplified per-ticker DataFrame, or ``None`` if no
-    sector produced any data.
+    sector produced any data. Exits with status 1 if any sector silently
+    yielded zero rows so the caller (typically a GHA workflow) can fail
+    visibly instead of committing a partial dataset.
     """
+    # Process the largest sectors first. The yfinance rate-limit budget is
+    # freshest at the start of a run; if Yahoo throttles partway through,
+    # we'd rather lose a small sector than a large one. The previous
+    # alphabetical order had technology near the end and it was silently
+    # wiped out by rate-limiting in production.
+    candidate_counts: Dict[str, int] = {}
+    for sector in sectors:
+        companies = await get_sector_companies(sector)
+        candidate_counts[sector] = len(companies)
+    ordered_sectors = sorted(sectors, key=lambda s: candidate_counts.get(s, 0), reverse=True)
+
     all_data: List[pd.DataFrame] = []
     all_data_full: List[pd.DataFrame] = []
+    failed_sectors: List[Tuple[str, int]] = []
 
-    for sector in tqdm(sectors, desc="Processing sectors"):
+    for sector in tqdm(ordered_sectors, desc="Processing sectors"):
         await asyncio.sleep(INDUSTRY_DELAY)  # Rate limiting between sectors
         full_data, simple_data = await process_sector_async(sector, METRICS)
-        if simple_data is not None:
-            all_data.append(simple_data)
+        if simple_data is None or simple_data.empty:
+            failed_sectors.append((sector, candidate_counts[sector]))
+            continue
+        all_data.append(simple_data)
         if full_data is not None:
             all_data_full.append(full_data)
 
+    if failed_sectors:
+        print("\n!!! SECTOR FAILURES — yielded zero surviving rows !!!")
+        for sector, n_candidates in failed_sectors:
+            print(f"  {sector}: 0 rows from {n_candidates} candidates")
+
     if not all_data:
         print("No data was collected successfully.")
-        return None
+        sys.exit(1)
 
     # Combine all sector data
     combined_data = pd.concat(all_data, ignore_index=True)
@@ -421,6 +443,13 @@ async def analyze_sectors_async(sectors: List[str] = SECTORS) -> Optional[pd.Dat
     # Save to CSV
     combined_data.to_csv("sector_analysis.csv", index=False)
     combined_data_full.to_csv("sector_analysis_full.csv", index=False)
+
+    # Partial-success: write what we got so a follow-up can patch the gap,
+    # but exit non-zero so CI / the operator notices instead of pushing
+    # silently-broken data.
+    if failed_sectors:
+        sys.exit(1)
+
     return combined_data
 
 if __name__ == "__main__":
