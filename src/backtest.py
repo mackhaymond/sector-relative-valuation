@@ -919,3 +919,75 @@ def format_summary_table(
         + "\n".join(cost_rows)
         + "\n"
     )
+
+
+# Cost-sensitivity grid: 0 (frictionless upper bound), 10 (the spec's
+# round-trip assumption), 25 (a stress test for less-liquid names).
+_COST_SENSITIVITY_GRID = [0.0, 10.0, 25.0]
+
+
+def _parse_args() -> "object":
+    """argparse parser kept inline to keep the CLI surface in one file."""
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description=(
+            "Run the sector-relative valuation backtest. See BACKTEST.md "
+            "for methodology and limitations."
+        )
+    )
+    parser.add_argument(
+        "--months",
+        type=int,
+        default=36,
+        help="Backtest window length in months (default: 36).",
+    )
+    parser.add_argument(
+        "--cost-bps",
+        type=float,
+        default=10.0,
+        help=(
+            "Round-trip transaction cost in basis points applied to the "
+            "long-short return at each rebalance (default: 10)."
+        ),
+    )
+    parser.add_argument(
+        "--results-csv",
+        type=Path,
+        default=RESULTS_CSV_PATH,
+        help=f"Path for the per-(snapshot, sector) results CSV "
+        f"(default: {RESULTS_CSV_PATH.relative_to(ROOT)}).",
+    )
+    parser.add_argument(
+        "--artifacts-dir",
+        type=Path,
+        default=ARTIFACTS_DIR,
+        help=f"Directory for PNG artifacts "
+        f"(default: {ARTIFACTS_DIR.relative_to(ROOT)}).",
+    )
+    return parser.parse_args()
+
+
+def main() -> int:
+    """CLI entrypoint. Returns a process exit code."""
+    args = _parse_args()
+    months = int(getattr(args, "months"))
+    cost_bps = float(getattr(args, "cost_bps"))
+    results_csv = Path(getattr(args, "results_csv"))
+    artifacts_dir = Path(getattr(args, "artifacts_dir"))
+
+    monthly_df, per_sector_df, metrics = run_backtest(
+        months=months, cost_bps=cost_bps
+    )
+    summary = sector_summary(per_sector_df)
+    cost_table = cost_sensitivity(monthly_df, _COST_SENSITIVITY_GRID)
+
+    write_results_csv(monthly_df, per_sector_df, results_csv)
+    save_artifacts(monthly_df, per_sector_df, out_dir=artifacts_dir)
+
+    print(format_summary_table(metrics, summary, cost_table))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
