@@ -710,3 +710,212 @@ def sector_summary(per_sector_df: pd.DataFrame) -> pd.DataFrame:
             }
         )
     return pd.DataFrame(rows)
+
+
+RESULTS_CSV_PATH = ROOT / "backtest_results.csv"
+ARTIFACTS_DIR = ROOT / "backtest_artifacts"
+
+# Match the dashboard's COLORS palette (src/dashboard.py:66-74) so the
+# backtest artifacts share visual identity with the live UI.
+_PLOT_COLORS = {
+    "primary": "#3498db",
+    "secondary": "#e74c3c",
+    "accent": "#2ecc71",
+    "text": "#2c3e50",
+    "light_gray": "#f0f0f0",
+}
+
+
+def write_results_csv(
+    monthly_df: pd.DataFrame,
+    per_sector_df: pd.DataFrame,
+    path: Optional[Path] = None,
+) -> Path:
+    """Persist monthly-level + per-sector results into one wide CSV.
+
+    Each row is a (snapshot, sector) pair so the file captures both the
+    per-snapshot aggregate (n_sectors, ls_return_net, mean_ic,
+    cumulative_net) and the per-sector breakdown (sector-level IC and
+    LS return) in one place. A consumer that only wants the
+    cross-sector time series can collapse by snapshot.
+    """
+    if path is None:
+        path = RESULTS_CSV_PATH
+    monthly_projection = monthly_df[
+        [
+            "snapshot",
+            "forward",
+            "n_sectors",
+            "ls_return_gross",
+            "ls_return_net",
+            "mean_ic",
+            "cumulative_net",
+        ]
+    ]
+    assert isinstance(monthly_projection, pd.DataFrame)
+    monthly_cols = monthly_projection.rename(
+        columns={
+            "mean_ic": "snapshot_mean_ic",
+            "ls_return_gross": "snapshot_ls_gross",
+            "ls_return_net": "snapshot_ls_net",
+            "cumulative_net": "snapshot_cumulative_net",
+        }
+    )
+    merged = per_sector_df.merge(monthly_cols, on="snapshot", how="left")
+    merged = merged.sort_values(["snapshot", "sector"]).reset_index(drop=True)
+    merged.to_csv(path, index=False)
+    return path
+
+
+def _save_cumulative_plot(monthly_df: pd.DataFrame, path: Path) -> None:
+    """Cumulative long-short return curve. Net of the configured cost."""
+    # Import lazily so importing the module for unit tests / interactive
+    # work doesn't pull matplotlib's backend stack.
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots(figsize=(9, 5))
+    ax.plot(
+        monthly_df["snapshot"],
+        monthly_df["cumulative_net"],
+        color=_PLOT_COLORS["primary"],
+        linewidth=2.0,
+        label="Long-short (Q1 - Q5), sector-neutral, net",
+    )
+    ax.axhline(1.0, color=_PLOT_COLORS["light_gray"], linewidth=1.0, linestyle="--")
+    ax.set_xlabel("Snapshot date", color=_PLOT_COLORS["text"])
+    ax.set_ylabel("Cumulative net return (x initial)", color=_PLOT_COLORS["text"])
+    ax.set_title(
+        "Cumulative long-short return", color=_PLOT_COLORS["text"], fontsize=13
+    )
+    ax.legend(loc="best", frameon=False)
+    ax.grid(alpha=0.2)
+    fig.autofmt_xdate()
+    fig.tight_layout()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(path, dpi=120)
+    plt.close(fig)
+
+
+def _save_ic_distribution_plot(per_sector_df: pd.DataFrame, path: Path) -> None:
+    """Per-sector IC distribution (box plot of per-snapshot ICs)."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    sectors = sorted(per_sector_df["sector"].unique())
+    data = [
+        per_sector_df.loc[per_sector_df["sector"] == s, "ic"].dropna().to_numpy()
+        for s in sectors
+    ]
+    fig, ax = plt.subplots(figsize=(10, 5))
+    bp = ax.boxplot(
+        data,
+        tick_labels=sectors,
+        patch_artist=True,
+        medianprops={"color": _PLOT_COLORS["secondary"], "linewidth": 1.5},
+    )
+    for patch in bp["boxes"]:
+        patch.set_facecolor(_PLOT_COLORS["primary"])
+        patch.set_alpha(0.35)
+    ax.axhline(0.0, color=_PLOT_COLORS["text"], linewidth=0.8, linestyle="--")
+    ax.set_xlabel("Sector", color=_PLOT_COLORS["text"])
+    ax.set_ylabel(
+        "Per-snapshot IC (Spearman, deviation vs forward return)",
+        color=_PLOT_COLORS["text"],
+    )
+    ax.set_title("IC distribution by sector", color=_PLOT_COLORS["text"], fontsize=13)
+    ax.tick_params(axis="x", rotation=30)
+    ax.grid(axis="y", alpha=0.2)
+    fig.tight_layout()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(path, dpi=120)
+    plt.close(fig)
+
+
+def save_artifacts(
+    monthly_df: pd.DataFrame,
+    per_sector_df: pd.DataFrame,
+    out_dir: Optional[Path] = None,
+) -> Tuple[Path, Path]:
+    """Save the two PNG artifacts. Returns the saved paths."""
+    if out_dir is None:
+        out_dir = ARTIFACTS_DIR
+    cum_path = out_dir / "cumulative_long_short_return.png"
+    ic_path = out_dir / "ic_distribution_by_sector.png"
+    _save_cumulative_plot(monthly_df, cum_path)
+    _save_ic_distribution_plot(per_sector_df, ic_path)
+    return cum_path, ic_path
+
+
+def format_summary_table(
+    metrics: BacktestMetrics,
+    per_sector_df: pd.DataFrame,
+    cost_table: pd.DataFrame,
+) -> str:
+    """Pretty-printed summary matching generate_weights.py's style.
+
+    Same column-padding conventions: left-aligned section labels, right-
+    aligned numerics with explicit width specifiers, a separator line
+    equal to the header length, and a section break between the headline
+    table, the per-sector table, and the cost-sensitivity table.
+    """
+    headline_rows = [
+        f"{'metric':<32} {'value':>14}",
+        "-" * 47,
+        f"{'months':<32} {metrics.months:>14d}",
+        f"{'snapshots':<32} {metrics.snapshots:>14d}",
+        f"{'cost (bps round-trip)':<32} {metrics.cost_bps:>14.2f}",
+        f"{'mean IC (Spearman)':<32} {metrics.mean_ic:>14.4f}",
+        f"{'IC t-stat':<32} {metrics.ic_t_stat:>14.3f}",
+        f"{'IC information ratio':<32} {metrics.ic_information_ratio:>14.3f}",
+        f"{'LS mean monthly return':<32} {metrics.ls_mean_monthly_return:>14.5f}",
+        f"{'LS monthly std':<32} {metrics.ls_std_monthly_return:>14.5f}",
+        f"{'LS annualized Sharpe':<32} {metrics.ls_sharpe_annualized:>14.3f}",
+        f"{'LS cumulative return':<32} {metrics.ls_cumulative_return:>14.4f}",
+        f"{'LS max drawdown':<32} {metrics.ls_max_drawdown:>14.4f}",
+        f"{'LS hit rate':<32} {metrics.ls_hit_rate:>14.2%}",
+    ]
+
+    sector_header = (
+        f"{'sector':<24} {'n_snaps':>8} {'mean_IC':>9} {'IC_t':>7} "
+        f"{'LS_ret':>9} {'LS_Sharpe':>10} {'LS_hit':>8}"
+    )
+    sector_rows = [sector_header, "-" * len(sector_header)]
+    for _, row in per_sector_df.iterrows():
+        sector_rows.append(
+            f"{str(row['sector']):<24} "
+            f"{int(row['n_snapshots']):>8d} "
+            f"{float(row['mean_ic']):>9.4f} "
+            f"{float(row['ic_t_stat']):>7.2f} "
+            f"{float(row['ls_mean_monthly']):>9.4f} "
+            f"{float(row['ls_sharpe']):>10.3f} "
+            f"{float(row['ls_hit_rate']):>8.2%}"
+        )
+
+    cost_header = (
+        f"{'cost_bps':>10} {'monthly_ret':>13} {'Sharpe':>10} "
+        f"{'cumret':>10} {'hit_rate':>10}"
+    )
+    cost_rows = [cost_header, "-" * len(cost_header)]
+    for _, row in cost_table.iterrows():
+        cost_rows.append(
+            f"{float(row['cost_bps']):>10.2f} "
+            f"{float(row['mean_monthly_return']):>13.5f} "
+            f"{float(row['sharpe_annualized']):>10.3f} "
+            f"{float(row['cumulative_return']):>10.4f} "
+            f"{float(row['hit_rate']):>10.2%}"
+        )
+
+    return (
+        "\nBacktest summary:\n"
+        + "\n".join(headline_rows)
+        + "\n\nPer-sector breakdown:\n"
+        + "\n".join(sector_rows)
+        + "\n\nCost sensitivity (computed from gross returns):\n"
+        + "\n".join(cost_rows)
+        + "\n"
+    )
